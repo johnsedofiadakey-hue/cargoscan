@@ -1,0 +1,29 @@
+Redesign scanner UI and hybrid LiDAR measurement system
+
+Changes:
+- Remove all debug LiDAR visuals (point clouds, scan circles, bounding boxes)
+- Replace mesh bounding box with glowing contour outline (3-layer blur effect)
+- Add object confirmation step: "Object detected — Tap to confirm measurement"
+- Move dimension panel to bottom of screen (no longer overlaps cargo view)
+- Remove mesh-extent-based dimension calculation entirely
+- Implement full hybrid measurement pipeline:
+    • Step 1: ARPlaneAnchor floor detection + RANSAC depth fallback
+    • Step 2: LiDAR height histogram → dominant cluster detection
+    • Step 3: RANSAC plane fitting on top-surface point cloud
+    • Step 4: Height = |floor.signedDistance(topPlane.centroid)| in cm
+    • Step 5: Sobel gradient edge detection on camera YUV image
+    • Step 6: Hough line accumulation → 2 perpendicular line families
+    • Step 7: 4 corner intersections → ARKit raycast → world 3D points
+    • Step 8: L/W = simd_length(corner pairs); 60% edge / 40% LiDAR fusion
+    • Step 9: 15-frame IQR-filtered rolling buffer for stability
+- Measurement validation: reject <20cm objects, unstable planes, bad ratios
+- Replace hardcoded "99.9% accuracy" with dynamic Scan Confidence score
+- Add 5-step workflow progress strip at top of screen
+- Add haptic feedback + white flash on object detection
+- Fix scan reticle centering (GeometryReader-based screen centre)
+- Add "Hybrid" badge in result panel when edge fusion was used
+- New file: EdgeDetector.swift (560 lines, Sobel + Hough + raycast pipeline)
+
+git add .
+git commit -m "Redesign scanner UI and hybrid LiDAR measurement system"
+git push origin work
