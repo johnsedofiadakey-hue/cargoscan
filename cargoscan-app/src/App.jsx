@@ -1518,11 +1518,27 @@ function LidarScanner({ onLock, onCancel }) {
         <video ref={videoRef} autoPlay playsInline muted style={{ width: "100%", height: "100%", objectFit: "cover", opacity: 0.6 }} />
 
         {/* AUTOMATED SCALE DETECTION MESSAGE (SIMULATED) */}
-        {phase === "GUIDANCE" && dist > 3.0 && (
-          <div className="afu" style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 5, pointerEvents: "none" }}>
-            <div style={{ background: "rgba(0,0,0,0.8)", padding: "12px 20px", borderRadius: 40, border: `1px solid ${C.blue}40`, color: "#fff", fontSize: 13, fontWeight: 700 }}>
-              AI: Detecting object scale...
-            </div>
+        {/* HYBRID MEASUREMENT HUD (SIMULATED) */}
+        {phase === "GUIDANCE" && (
+          <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", pointerEvents: "none", zIndex: 10 }}>
+            {dist > 2.0 ? (
+              <div style={{ background: "rgba(0,0,0,0.8)", padding: "12px 20px", borderRadius: 40, border: `1px solid ${C.blue}40`, color: "#fff", fontSize: 13, fontWeight: 700 }}>
+                AI: Detecting Floor & Top Surface...
+              </div>
+            ) : (
+              <div style={{ background: "rgba(0,0,0,0.8)", padding: "12px 20px", borderRadius: 40, border: `1px solid ${C.green}40`, color: "#fff", fontSize: 13, fontWeight: 700 }}>
+                📡 Hybrid Sync: Planes Locked. Detected 4 Corners.
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* CORNER LOCK VISUALS */}
+        {(phase === "SCANNING" || phase === "LOCKED") && (
+          <div style={{ position: "absolute", inset: 0, pointerEvents: "none", zIndex: 5 }}>
+            {[{ top: "25%", left: "25%" }, { top: "25%", right: "25%" }, { bottom: "25%", left: "25%" }, { bottom: "25%", right: "25%" }].map((pos, i) => (
+              <div key={i} style={{ position: "absolute", ...pos, width: 24, height: 24, border: `2px solid ${C.green}`, borderRadius: "50%", boxShadow: `0 0 15px ${C.green}80`, background: "rgba(0,212,138,0.1)" }} />
+            ))}
           </div>
         )}
 
