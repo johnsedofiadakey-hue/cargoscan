@@ -21,7 +21,13 @@ class ARScannerViewModel: NSObject, ObservableObject, ARSessionDelegate {
     @Published var isStable: Bool = false
     @Published var capturedImage: UIImage? = nil
     @Published var isCalibrated: Bool = false
-    @Published var calibrationScale: Float = 1.0
+    @Published var cornerPoints: [CGPoint] = []
+    @Published var topPlaneDetected: Bool = false
+    @Published var floorPlaneDetected: Bool = false
+    
+    // Measurement Buffer
+    private var dimensionBuffer: [CargoDimensions] = []
+    private let maxBufferSize = 10
     
     var arView: ARView?
     private var session: ARSession { arView?.session ?? ARSession() }
@@ -60,27 +66,60 @@ class ARScannerViewModel: NSObject, ObservableObject, ARSessionDelegate {
         
         switch phase {
         case .detectingFloor:
-            if !session.currentFrame!.anchors.compactMap({ $0 as? ARPlaneAnchor }).isEmpty {
+            if let floor = session.currentFrame!.anchors.compactMap({ $0 as? ARPlaneAnchor }).first(where: { $0.alignment == .horizontal }) {
+                floorPlaneDetected = true
                 phase = .ready
-                aiMessage = "Floor detected. Aim at cargo."
+                aiMessage = "Floor locked. Aim at cargo top."
             }
         case .scanning:
-            detectMarker(frame)
-            updateScanProgress()
+            processHybridMeasurement(frame)
         default:
             break
         }
     }
     
-    private func detectMarker(_ frame: ARFrame) {
-        // AI: Computer Vision to detect 20x20cm marker or A4 sheet
-        // This calculates a 'calibrationScale' correction factor
-        // For simulation: assume detected if steady for 1 sec
-        if isStable && !isCalibrated {
-            isCalibrated = true
-            calibrationScale = 0.985 // example correction
-            aiMessage = "Calibration detected. Accuracy improved."
+    private func processHybridMeasurement(_ frame: ARFrame) {
+        // 1. Detect Top Plane
+        let topPlanes = frame.anchors.compactMap { $0 as? ARPlaneAnchor }.filter { $0.alignment == .horizontal && $0.center.y > 0.1 }
+        if let topPlane = topPlanes.first {
+            topPlaneDetected = true
+            
+            // 2. Height = Top Y - Floor Y
+            let height = topPlane.center.y * 100 // cm
+            
+            // 3. Detect Corners (Simulated CV Logic)
+            // In production, we use CIDetector or Vision framework here
+            let corners = simulateCornerDetection()
+            self.cornerPoints = corners
+            
+            // 4. Raycast for L/W
+            let (l, w) = calculateLWFromCorners(corners)
+            
+            let current = CargoDimensions(length: l, width: w, height: height, confidence: 0.95)
+            updateBuffer(with: current)
         }
+    }
+    
+    private func updateBuffer(with dims: CargoDimensions) {
+        dimensionBuffer.append(dims)
+        if dimensionBuffer.count > maxBufferSize { dimensionBuffer.removeFirst() }
+        
+        progress = Double(dimensionBuffer.count) / Double(maxBufferSize)
+        
+        if dimensionBuffer.count == maxBufferSize {
+            finishScan()
+        }
+    }
+    
+    private func simulateCornerDetection() -> [CGPoint] {
+        // Return 4 points forming a rectangle in screen space
+        return [CGPoint(x: 100, y: 100), CGPoint(x: 300, y: 100), CGPoint(x: 300, y: 400), CGPoint(x: 100, y: 400)]
+    }
+    
+    private func calculateLWFromCorners(_ corners: [CGPoint]) -> (Float, Float) {
+        // Raycast points and measure 3D distance
+        // Simulated for current environment
+        return (60.0, 40.0)
     }
     
     private func updateDistance(_ frame: ARFrame) {

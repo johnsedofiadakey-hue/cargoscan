@@ -15,19 +15,18 @@ struct CargoDimensions {
 
 class MeshProcessor {
     
-    /// Extract Oriented Bounding Box (OBB) from ARMeshAnchors
-    static func calculateDimensions(from meshAnchors: [ARMeshAnchor], calibrationFactor: Float = 1.0) -> CargoDimensions {
-        // Principal Component Analysis (PCA) on isolated point cloud
-        // applying correction factor from reference marker
+    /// Average dimensions from multiple hybrid frames
+    static func averageDimensions(from buffer: [CargoDimensions]) -> CargoDimensions {
+        guard !buffer.isEmpty else { return CargoDimensions(length: 0, width: 0, height: 0, confidence: 0) }
         
-        let length: Float = 60.1 * calibrationFactor
-        let width: Float = 45.0 * calibrationFactor
-        let height: Float = 40.2 * calibrationFactor
+        let avgL = buffer.map { $0.length }.reduce(0, +) / Float(buffer.count)
+        let avgW = buffer.map { $0.width }.reduce(0, +) / Float(buffer.count)
+        let avgH = buffer.map { $0.height }.reduce(0, +) / Float(buffer.count)
         
         return CargoDimensions(
-            length: length,
-            width: width,
-            height: height,
+            length: avgL,
+            width: avgW,
+            height: avgH,
             confidence: 0.99
         )
     }

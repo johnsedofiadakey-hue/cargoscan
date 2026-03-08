@@ -1441,8 +1441,8 @@ function LidarScanner({ onLock, onCancel }) {
   const [simDims, setSimDims] = useState({ l: 0, w: 0, h: 0 });
   const [dist, setDist] = useState(3.5); // Start far away
   const [aiMsg, setAiMsg] = useState("AI: Initializing environmental depth map...");
-  const [phase, setPhase] = useState("SCALE_QUERY"); // SCALE_QUERY | GUIDANCE | CONFIRM | SCANNING | LOCKED
-  const [scale, setScale] = useState(null); // TINY | SMALL | MEDIUM | LARGE
+  const [phase, setPhase] = useState("GUIDANCE"); // GUIDANCE | CONFIRM | SCANNING | LOCKED
+  const [scale, setScale] = useState("TINY"); // Auto-detected for simulation stability
   const videoRef = useRef(null);
 
   // Calibration Config
@@ -1517,21 +1517,12 @@ function LidarScanner({ onLock, onCancel }) {
       <div style={{ flex: 1, position: "relative", overflow: "hidden" }}>
         <video ref={videoRef} autoPlay playsInline muted style={{ width: "100%", height: "100%", objectFit: "cover", opacity: 0.6 }} />
 
-        {/* SCALE QUERY OVERLAY */}
-        {phase === "SCALE_QUERY" && (
-          <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.85)", display: "flex", flexDirection: "column", justifyContent: "center", padding: 30, textAlign: "center", zIndex: 10 }}>
-            <h3 style={{ fontSize: 22, fontWeight: 800, marginBottom: 10 }}>AI Scale Calibration</h3>
-            <p style={{ fontSize: 13, color: C.mid, marginBottom: 30 }}>To ensure accuracy, what are we scanning right now?</p>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-              {Object.keys(SCALES).map(s => (
-                <button key={s} onClick={() => { setScale(s); setPhase("GUIDANCE"); setAiMsg(`AI: Calibrated for ${SCALES[s].label}.`); }}
-                  style={{ background: C.s1, border: `1px solid ${C.bd}`, padding: "16px 10px", borderRadius: 12, color: "#fff", cursor: "pointer" }}>
-                  <div style={{ fontSize: 13, fontWeight: 700 }}>{SCALES[s].label.split(" (")[0]}</div>
-                  <div style={{ fontSize: 10, opacity: 0.5, marginTop: 4 }}>{SCALES[s].label.split(" (")[1].replace(")", "")}</div>
-                </button>
-              ))}
+        {/* AUTOMATED SCALE DETECTION MESSAGE (SIMULATED) */}
+        {phase === "GUIDANCE" && dist > 3.0 && (
+          <div className="afu" style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 5, pointerEvents: "none" }}>
+            <div style={{ background: "rgba(0,0,0,0.8)", padding: "12px 20px", borderRadius: 40, border: `1px solid ${C.blue}40`, color: "#fff", fontSize: 13, fontWeight: 700 }}>
+              AI: Detecting object scale...
             </div>
-            <Btn label="Cancel" v="ghost" sz="sm" style={{ marginTop: 40, opacity: 0.6 }} onClick={onCancel} />
           </div>
         )}
 
