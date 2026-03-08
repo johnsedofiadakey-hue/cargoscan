@@ -10,6 +10,45 @@ struct ScannerView: View {
         ZStack {
             ARViewContainer(viewModel: viewModel)
                 .edgesIgnoringSafeArea(.all)
+                .onTapGesture { point in
+                    viewModel.lockCorner(at: point)
+                }
+            
+            // OBJECT OUTLINE & CORNER LOCKS
+            ZStack {
+                if viewModel.cornerPoints.count == 4 {
+                    Path { path in
+                        path.move(to: viewModel.cornerPoints[0])
+                        for i in 1..<4 { path.addLine(to: viewModel.cornerPoints[i]) }
+                        path.closeSubpath()
+                    }
+                    .stroke(Color.green.opacity(0.8), lineWidth: 3)
+                    .background(
+                        Path { path in
+                            path.move(to: viewModel.cornerPoints[0])
+                            for i in 1..<4 { path.addLine(to: viewModel.cornerPoints[i]) }
+                            path.closeSubpath()
+                        }
+                        .fill(Color.green.opacity(0.1))
+                    )
+                }
+                
+                ForEach(0..<viewModel.cornerPoints.count, id: \.self) { i in
+                    ZStack {
+                        Circle()
+                            .stroke(viewModel.manualLocks[i] != nil ? Color.blue : Color.yellow, lineWidth: 2)
+                            .frame(width: 24, height: 24)
+                        
+                        if viewModel.manualLocks[i] != nil {
+                            Image(systemName: "lock.fill")
+                                .font(.system(size: 10))
+                                .foregroundColor(.blue)
+                        }
+                    }
+                    .position(viewModel.cornerPoints[i])
+                }
+            }
+            .allowsHitTesting(false)
             
             // AI HUD - TOP
             VStack {
@@ -82,12 +121,12 @@ struct ScannerView: View {
                             Divider().background(Color.white.opacity(0.2))
                             
                             HStack {
-                                Text("CBM: 0.1080")
+                                Text(String(format: "CBM: %.4f", 0.1080)) // In production, derived from viewModel
                                 Spacer()
-                                Text("Cost: $9.18")
+                                Text(String(format: "Confidence: %.0f%%", viewModel.confidence * 100))
                             }
                             .font(.system(size: 16, weight: .bold))
-                            .foregroundColor(.green)
+                            .foregroundColor(viewModel.confidence > 0.9 ? .green : .amber)
                             
                             Button(action: { viewModel.phase = .ready }) {
                                 Text("Save & Next Scan →")
