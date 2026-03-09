@@ -1,0 +1,62 @@
+workflows:
+  ios_testflight:
+    name: CargoScan iOS TestFlight
+    max_build_duration: 120
+    instance_type: mac_mini_m2
+
+    environment:
+      xcode: latest
+      vars:
+        APP_DIR: "cargoscan-ios"
+        XCODE_PROJECT_PATH: "CargoScan.xcodeproj"
+        XCODE_WORKSPACE_PATH: ""
+        XCODE_SCHEME: "CargoScan"
+        BUNDLE_ID: "com.cargoscan.ios"
+        APP_STORE_APPLE_ID: ""
+      groups:
+        - app_store_connect_credentials
+        - ios_signing
+
+    cache:
+      cache_paths:
+        - $HOME/.bundle/cache
+        - $HOME/Library/Caches/CocoaPods
+
+    scripts:
+      - name: Validate iOS project files
+        script: |
+          set -euo pipefail
+          if [ -n "${XCODE_WORKSPACE_PATH}" ] && [ -d "${XCODE_WORKSPACE_PATH}" ]; then
+            echo "Using workspace: ${XCODE_WORKSPACE_PATH}"
+          elif [ -d "${XCODE_PROJECT_PATH}" ]; then
+            echo "Using project: ${XCODE_PROJECT_PATH}"
+          else
+            echo "ERROR: No Xcode project/workspace found."
+            echo "Create CargoScan.xcodeproj in ${APP_DIR} and commit it."
+            exit 1
+          fi
+
+      - name: Install fastlane dependencies
+        script: |
+          set -euo pipefail
+          cd "$APP_DIR"
+          bundle install
+
+      - name: Build and upload to TestFlight
+        script: |
+          set -euo pipefail
+          cd "$APP_DIR"
+          bundle exec fastlane beta
+
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+      - $HOME/Library/Developer/Xcode/DerivedData/**/Build/**/*.app
+
+    triggering:
+      events:
+        - push
+      branch_patterns:
+        - pattern: work
+          include: true
+          source: true

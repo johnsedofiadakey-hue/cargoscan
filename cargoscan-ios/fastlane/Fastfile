@@ -1,0 +1,68 @@
+def resolve_project_config
+  workspace = ENV["XCODE_WORKSPACE_PATH"].to_s
+  project = ENV["XCODE_PROJECT_PATH"].to_s
+  ios_dir = File.expand_path("..", __dir__)
+
+  if !workspace.empty? && File.directory?(File.join(ios_dir, workspace))
+    return { workspace: workspace }
+  end
+
+  if !project.empty? && File.directory?(File.join(ios_dir, project))
+    return { project: project }
+  end
+
+  UI.user_error!("Missing Xcode workspace/project. Set XCODE_WORKSPACE_PATH or XCODE_PROJECT_PATH to a committed file.")
+end
+
+def has_value?(key)
+  !ENV[key].to_s.strip.empty?
+end
+
+platform :ios do
+  desc "Build and upload CargoScan to TestFlight"
+  lane :beta do
+    scheme = ENV["XCODE_SCHEME"] || "CargoScan"
+    bundle_id = ENV["BUNDLE_ID"]
+    match_git_url = ENV["MATCH_GIT_URL"].to_s
+
+    UI.user_error!("BUNDLE_ID is required") if bundle_id.to_s.strip.empty?
+    UI.user_error!("MATCH_GIT_URL is required for code signing") if match_git_url.strip.empty?
+
+    project_config = resolve_project_config
+
+    api_key = app_store_connect_api_key(
+      key_id: ENV["APP_STORE_CONNECT_KEY_ID"],
+      issuer_id: ENV["APP_STORE_CONNECT_ISSUER_ID"],
+      key_content: ENV["APP_STORE_CONNECT_PRIVATE_KEY"],
+      duration: 1200,
+      in_house: false
+    )
+
+    match(
+      type: "appstore",
+      app_identifier: [bundle_id],
+      readonly: false,
+      git_url: match_git_url,
+      git_branch: ENV["MATCH_GIT_BRANCH"].to_s.empty? ? "main" : ENV["MATCH_GIT_BRANCH"],
+      keychain_name: "login.keychain",
+      keychain_password: ""
+    )
+
+    build_app(
+      **project_config,
+      scheme: scheme,
+      export_method: "app-store",
+      output_directory: "build/ios/ipa",
+      output_name: "CargoScan.ipa",
+      clean: true
+    )
+
+    upload_to_testflight(
+      api_key: api_key,
+      skip_waiting_for_build_processing: true,
+      distribute_external: false,
+      app_identifier: bundle_id,
+      apple_id: ENV["APP_STORE_APPLE_ID"].to_s.empty? ? nil : ENV["APP_STORE_APPLE_ID"]
+    )
+  end
+end

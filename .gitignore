@@ -1,0 +1,11 @@
+.DS_Store
+
+# Node
+node_modules/
+cargoscan-api/node_modules/
+
+# Build artifacts
+cargoscan-app/dist/
+
+# Local logs
+*.log
