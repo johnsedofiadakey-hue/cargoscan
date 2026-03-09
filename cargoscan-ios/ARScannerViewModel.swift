@@ -3,6 +3,8 @@ import ARKit
 import RealityKit
 import Combine
 import simd
+import Vision
+import CoreImage
 
 enum ScanPhase {
     case initialization
@@ -12,6 +14,18 @@ enum ScanPhase {
     case processing
     case completed
     case failed
+}
+
+enum ScannerMode: String, CaseIterable {
+    case linked
+    case quick
+
+    var label: String {
+        switch self {
+        case .linked: return "Linked Scan"
+        case .quick: return "Quick Scan"
+        }
+    }
 }
 
 @MainActor
@@ -24,9 +38,18 @@ final class ARScannerViewModel: NSObject, ObservableObject, ARSessionDelegate {
     @Published var confidenceScore: Double = 0
     @Published var objectDetected: Bool = false
     @Published var floorPlaneDetected: Bool = false
+    @Published var pendingSyncCount: Int = 0
+    @Published var syncStatusMessage: String = "Waiting for first scan"
+    @Published var lastScanRecord: ScanRecord?
+    @Published var scannerMode: ScannerMode = .linked
+    @Published var trackingNumber: String = ""
+    @Published var operatorID: String = "operator-001"
+    @Published var linkedPackageSummary: String?
+    @Published var edgeConfidence: Double = 0
 
     private let frameTarget = 4
     private let config = GeometricScanConfig.default
+    private let syncService = ScanSyncService()
 
     private var frameBuffer: [CargoDimensions] = []
     private var floorPlane: PlaneEquation?
@@ -53,6 +76,11 @@ final class ARScannerViewModel: NSObject, ObservableObject, ARSessionDelegate {
         arView.session.run(configuration)
         phase = .detectingFloor
         aiMessage = "Detecting floor plane..."
+
+        Task {
+            await refreshPendingCount()
+            await retryPendingSync()
+        }
     }
 
     func session(_ session: ARSession, didUpdate frame: ARFrame) {
@@ -76,10 +104,51 @@ final class ARScannerViewModel: NSObject, ObservableObject, ARSessionDelegate {
         }
     }
 
+    func setMode(_ mode: ScannerMode) {
+        scannerMode = mode
+        linkedPackageSummary = nil
+        syncStatusMessage = mode == .linked ? "Linked mode: attach by tracking number" : "Quick mode: measurement only"
+    }
+
+    func lookupLinkedPackage() {
+        let tracking = trackingNumber.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !tracking.isEmpty else {
+            linkedPackageSummary = nil
+            aiMessage = "Enter tracking number for linked scan"
+            return
+        }
+
+        Task {
+            do {
+                if let package = try await syncService.findPackage(by: tracking) {
+                    linkedPackageSummary = "\(package.customerName) · \(package.itemName)"
+                    aiMessage = "Package found. Ready to scan."
+                } else {
+                    linkedPackageSummary = nil
+                    aiMessage = "No package with this tracking number."
+                }
+            } catch {
+                linkedPackageSummary = nil
+                aiMessage = "Package lookup failed (offline/API unavailable)."
+            }
+        }
+    }
+
     func confirmMeasurement() {
         guard phase == .ready, objectDetected else { return }
+
+        if scannerMode == .linked {
+            let tracking = trackingNumber.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !tracking.isEmpty else {
+                phase = .failed
+                aiMessage = "Linked mode requires a tracking number."
+                return
+            }
+        }
+
         frameBuffer = []
         progress = 0
+        edgeConfidence = 0
         phase = .scanning
         aiMessage = "Capturing stable measurement frames..."
     }
@@ -92,6 +161,7 @@ final class ARScannerViewModel: NSObject, ObservableObject, ARSessionDelegate {
         confidenceScore = 0
         outlinePoints = []
         objectDetected = false
+        edgeConfidence = 0
         aiMessage = floorPlaneDetected ? "Scan object to detect outline" : "Detecting floor plane..."
     }
 
@@ -124,6 +194,9 @@ final class ARScannerViewModel: NSObject, ObservableObject, ARSessionDelegate {
             outlinePoints = MeshProcessor.projectTopOutline(measurement.topCorners, in: arView)
             frameBuffer.append(measurement.dimensions)
 
+            let visionScore = estimateEdgeConfidence(from: frame)
+            edgeConfidence = visionScore
+
             if frameBuffer.count > frameTarget {
                 frameBuffer.removeFirst()
             }
@@ -149,11 +222,35 @@ final class ARScannerViewModel: NSObject, ObservableObject, ARSessionDelegate {
 
         let averaged = MeshProcessor.averageDimensions(from: frameBuffer)
         measuredDimensions = averaged
-        confidenceScore = MeshProcessor.confidenceScore(from: frameBuffer)
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-            self.phase = .completed
-            self.aiMessage = "Measurement complete"
+        let geometryConfidence = MeshProcessor.confidenceScore(from: frameBuffer)
+        confidenceScore = min(1.0, max(0.0, (geometryConfidence * 0.8) + (edgeConfidence * 0.2)))
+
+        Task {
+            if scannerMode == .linked {
+                let tracking = trackingNumber.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !tracking.isEmpty else {
+                    phase = .failed
+                    aiMessage = "Linked mode requires a tracking number."
+                    return
+                }
+
+                let photo = await captureSnapshotBase64()
+                let scanRecord = ScanRecord.from(
+                    trackingNumber: tracking,
+                    operatorId: operatorID,
+                    dimensions: averaged,
+                    confidenceScore: confidenceScore,
+                    photoBase64: photo
+                )
+                lastScanRecord = scanRecord
+                await submitScanRecord(scanRecord)
+            } else {
+                syncStatusMessage = "Quick scan complete (not saved to backend)"
+            }
+
+            phase = .completed
+            aiMessage = "Measurement complete"
         }
     }
 
@@ -192,6 +289,61 @@ final class ARScannerViewModel: NSObject, ObservableObject, ARSessionDelegate {
             return "Corner detection incomplete. Ensure full top edges are visible."
         case .missingFloorPlane:
             return "Floor not detected. Aim at the floor first."
+        }
+    }
+
+    func retryPendingSync() async {
+        do {
+            try await syncService.flushQueue()
+            syncStatusMessage = "All scans synced"
+        } catch {
+            syncStatusMessage = "Sync pending (offline/unreachable API)"
+        }
+        await refreshPendingCount()
+    }
+
+    private func submitScanRecord(_ record: ScanRecord) async {
+        let outcome = await syncService.enqueueAndSync(record)
+        switch outcome {
+        case .synced:
+            syncStatusMessage = "Scan synced to backend"
+        case .queued:
+            syncStatusMessage = "Scan queued offline. Will retry."
+        }
+        await refreshPendingCount()
+    }
+
+    private func refreshPendingCount() async {
+        pendingSyncCount = await syncService.pendingCount()
+    }
+
+    private func captureSnapshotBase64() async -> String? {
+        guard let arView else { return nil }
+
+        return await withCheckedContinuation { continuation in
+            arView.snapshot(saveToHDR: false) { image in
+                guard let data = image?.jpegData(compressionQuality: 0.7) else {
+                    continuation.resume(returning: nil)
+                    return
+                }
+                continuation.resume(returning: data.base64EncodedString())
+            }
+        }
+    }
+
+    private func estimateEdgeConfidence(from frame: ARFrame) -> Double {
+        let request = VNDetectContoursRequest()
+        request.detectsDarkOnLight = false
+        request.maximumImageDimension = 512
+
+        let handler = VNImageRequestHandler(cvPixelBuffer: frame.capturedImage, options: [:])
+        do {
+            try handler.perform([request])
+            guard let observation = request.results?.first else { return 0 }
+            let normalized = min(1.0, Double(observation.contourCount) / 120.0)
+            return normalized
+        } catch {
+            return 0
         }
     }
 }

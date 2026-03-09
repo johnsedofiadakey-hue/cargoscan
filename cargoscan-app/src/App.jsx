@@ -37,6 +37,10 @@ export function PlatformProvider({ children }) {
     updateShipment: (id, cls) => setPlatform(p => ({
       ...p, shipments: p.shipments.map(s => s.id === id ? { ...s, ...cls } : s)
     })),
+    addPackage: (pkg) => setPlatform(p => ({ ...p, packages: [pkg, ...(p.packages || [])] })),
+    updatePackage: (id, cls) => setPlatform(p => ({
+      ...p, packages: (p.packages || []).map(pkg => pkg.id === id ? { ...pkg, ...cls } : pkg)
+    })),
     addDispute: (d) => setPlatform(p => ({ ...p, disputes: [d, ...p.disputes] })),
     updateDispute: (id, cls) => setPlatform(p => ({
       ...p, disputes: p.disputes.map(d => d.id === id ? { ...d, ...cls } : d)
@@ -44,6 +48,7 @@ export function PlatformProvider({ children }) {
     wipeData: (slug) => setPlatform(p => ({
       ...p,
       shipments: p.shipments.filter(s => s.org !== slug),
+      packages: (p.packages || []).filter(pkg => pkg.org !== slug),
       disputes: p.disputes.filter(d => d.org !== slug),
       orgs: { ...p.orgs, [slug]: { ...p.orgs[slug], usage: { ships: 0, items: 0, users: 1 } } }
     })),
@@ -181,6 +186,7 @@ const INITIAL_PLATFORM = {
   },
 
   shipments: [],
+  packages: [],
   disputes: [],
 };
 
@@ -456,7 +462,7 @@ function LoginScreen({ onSuccess, onSignup }) {
   }, [email, pass, onSuccess, pData]);
 
   return (
-    <div style={{ minHeight: "100vh", minHeight: "100dvh", display: "flex", flexDirection: "column" }}>
+    <div style={{ minHeight: "100dvh", display: "flex", flexDirection: "column" }}>
       {/* LEFT — brand panel */}
       <div style={{
         display: "none"
@@ -639,7 +645,7 @@ function SignupScreen({ onDone, onLogin }) {
   );
 
   return (
-    <div style={{ minHeight: "100vh", minHeight: "100dvh", display: "flex", flexDirection: "column", background: C.bg }}>
+    <div style={{ minHeight: "100dvh", display: "flex", flexDirection: "column", background: C.bg }}>
       {/* Steps sidebar - hidden on mobile */}
       <div style={{ display: "none" }}>
         <Logo sz={20} />
@@ -1180,7 +1186,7 @@ function OrgApp({ user, org, onLogout }) {
 
   const TABS = [
     { id: "dashboard", icon: "◈", label: "Dashboard", show: true },
-    { id: "shipments", icon: "🚢", label: "Shipments", show: true },
+    { id: "shipments", icon: "📦", label: "Packages", show: true },
     { id: "scan", icon: "📱", label: "Scan Item", show: true, accent: true },
     { id: "disputes", icon: "🛡", label: "Disputes", show: isAdmin || isSup },
     { id: "billing", icon: "💳", label: "Billing", show: isAdmin },
@@ -1279,11 +1285,11 @@ function OrgApp({ user, org, onLogout }) {
 
 // ─── DASHBOARD TAB ─────────────────────────────────────────────
 function DashTab({ org, user, onUpgrade }) {
-  const { data: pData, addShipment } = usePlatform();
-  const orgShipments = pData.shipments.filter(s => s.org === org.slug);
-  const activeShips = orgShipments.filter(s => s.status !== "DELIVERED").length;
+  const { data: pData } = usePlatform();
+  const orgPackages = (pData.packages || []).filter(p => p.org === org.slug);
+  const scannedPackages = orgPackages.filter(p => p.cbm != null);
   const totalItems = org.usage.items || 0;
-  const totalCBM = orgShipments.reduce((a, s) => a + (s.cbm || 0), 0);
+  const totalCBM = scannedPackages.reduce((a, p) => a + (p.cbm || 0), 0);
   return (
     <div className="afu">
       <div style={{ marginBottom: 18 }}>
@@ -1294,9 +1300,9 @@ function DashTab({ org, user, onUpgrade }) {
       </div>
 
       <div className="grid-mobile-2" style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 12, marginBottom: 18 }}>
-        <Stat label="Items Scanned" value={totalItems} sub={`${orgShipments.length} shipments total`} color={C.blue} />
+        <Stat label="Items Scanned" value={scannedPackages.length} sub={`${orgPackages.length} packages total`} color={C.blue} />
         <Stat label="Total CBM" value={totalCBM.toFixed(1)} sub="" color={C.green} />
-        <Stat label="Active Shipments" value={activeShips} sub={`${orgShipments.length} total`} color={C.purple} />
+        <Stat label="Pending Scan" value={orgPackages.filter(p => p.cbm == null).length} sub="Awaiting native scan" color={C.purple} />
         <Stat label="Open Disputes" value={pData.disputes.filter(d => d.org === org.slug && d.status !== "RESOLVED").length} sub="" color={C.amber} />
       </div>
 
@@ -1316,44 +1322,21 @@ function DashTab({ org, user, onUpgrade }) {
 
       <Card>
         <div style={{ padding: "14px 18px", borderBottom: `1px solid ${C.bd}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <div style={{ fontWeight: 700, fontSize: 13 }}>Recent Shipments</div>
-          <Btn label="+ New Shipment" sz="sm" v="ghost" onClick={() => {
-            const sid = `SHP-${new Date().getFullYear()}-${Math.floor(100 + Math.random() * 900)}`;
-            addShipment({
-              id: Math.random().toString(36).substr(2, 9),
-              org: org.slug,
-              code: sid,
-              from: "Guangzhou",
-              to: org.slug === "stormglide" ? "Accra" : "Tema",
-              cbm: 0,
-              cap: 2.5,
-              items: 0,
-              status: "PENDING",
-              color: C.blue,
-              createdAt: new Date().toISOString()
-            });
-            notify(`Shipment ${sid} created!`, "ok");
-          }} />
+          <div style={{ fontWeight: 700, fontSize: 13 }}>Recent Packages</div>
+          <Chip label={`${scannedPackages.length}/${orgPackages.length} scanned`} color={C.blue} />
         </div>
-        {orgShipments.length === 0 && (
+        {orgPackages.length === 0 && (
           <div style={{ padding: "40px 18px", textAlign: "center", color: C.mid, fontSize: 13 }}>
-            No shipments yet. Create your first shipment to get started!
+            No packages yet. Create package records in the Packages tab before scanning.
           </div>
         )}
-        {orgShipments.map(s => (
-          <div key={s.id} style={{ padding: "11px 18px", borderBottom: `1px solid ${C.bd}`, display: "flex", alignItems: "center", gap: 14 }}>
-            <div style={{ fontFamily: C.mono, fontSize: 11, fontWeight: 700, color: C.blue, width: 110, flexShrink: 0 }}>{s.code}</div>
-            <div style={{ fontSize: 12, color: C.mid, flex: 1 }}>{s.from} → {s.to}</div>
-            <div style={{ width: 130, flexShrink: 0 }} className="hide-mobile">
-              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, marginBottom: 3 }}>
-                <span style={{ color: C.mid }}>{Math.round(s.cbm / s.cap * 100)}% full</span>
-                <span style={{ fontFamily: C.mono, color: s.color, fontWeight: 600 }}>{s.cbm} CBM</span>
-              </div>
-              <div style={{ height: 3, background: C.bd, borderRadius: 2 }}>
-                <div style={{ height: "100%", width: `${(s.cbm / s.cap) * 100}%`, background: s.color, borderRadius: 2 }} />
-              </div>
+        {orgPackages.slice(0, 8).map(pkg => (
+          <div key={pkg.id} style={{ padding: "11px 18px", borderBottom: `1px solid ${C.bd}`, display: "flex", alignItems: "center", gap: 14 }}>
+            <div style={{ fontFamily: C.mono, fontSize: 11, fontWeight: 700, color: C.blue, width: 130, flexShrink: 0 }}>{pkg.trackingNumber}</div>
+            <div style={{ fontSize: 12, color: C.mid, flex: 1 }}>{pkg.itemName || "Unnamed Item"} · Qty {pkg.quantity}</div>
+            <div style={{ fontFamily: C.mono, fontSize: 12, fontWeight: 700, color: pkg.cbm == null ? C.amber : C.green }}>
+              {pkg.cbm == null ? "PENDING" : `${Number(pkg.cbm).toFixed(4)} CBM`}
             </div>
-            <Chip label={s.status} color={s.color} />
           </div>
         ))}
       </Card>
@@ -1363,67 +1346,153 @@ function DashTab({ org, user, onUpgrade }) {
 
 // ─── SHIPMENTS TAB ─────────────────────────────────────────────
 function ShipmentsTab({ org, user }) {
-  const { data: pData } = usePlatform();
-  const [filter, setFilter] = useState("ALL");
-  const statuses = ["ALL", "PENDING", "RECEIVING", "IN_TRANSIT", "DELIVERED"];
-  const filtered = filter === "ALL" ? pData.shipments : pData.shipments.filter(s => s.status === filter);
+  const { data: pData, addPackage, updatePackage } = usePlatform();
+  const [editingId, setEditingId] = useState(null);
+  const [form, setForm] = useState({
+    customerName: "",
+    trackingNumber: "",
+    itemName: "",
+    description: "",
+    supplier: "",
+    shipmentId: "",
+    quantity: "1",
+  });
+
+  const orgPackages = (pData.packages || []).filter(pkg => pkg.org === org.slug);
+  const updateForm = (key, value) => setForm(prev => ({ ...prev, [key]: value }));
+
+  const resetForm = () => {
+    setForm({
+      customerName: "",
+      trackingNumber: "",
+      itemName: "",
+      description: "",
+      supplier: "",
+      shipmentId: "",
+      quantity: "1",
+    });
+    setEditingId(null);
+  };
+
+  const savePackage = () => {
+    if (!form.trackingNumber.trim()) {
+      notify("Tracking number is required", "err");
+      return;
+    }
+    if (!form.customerName.trim()) {
+      notify("Customer name is required", "err");
+      return;
+    }
+
+    const payload = {
+      id: editingId || Math.random().toString(36).slice(2, 11),
+      org: org.slug,
+      customerName: form.customerName.trim(),
+      trackingNumber: form.trackingNumber.trim(),
+      itemName: form.itemName.trim(),
+      description: form.description.trim(),
+      supplier: form.supplier.trim(),
+      shipmentId: form.shipmentId.trim(),
+      quantity: Math.max(1, parseInt(form.quantity || "1", 10)),
+      cbm: editingId ? orgPackages.find(p => p.id === editingId)?.cbm ?? null : null,
+      lengthCm: editingId ? orgPackages.find(p => p.id === editingId)?.lengthCm ?? null : null,
+      widthCm: editingId ? orgPackages.find(p => p.id === editingId)?.widthCm ?? null : null,
+      heightCm: editingId ? orgPackages.find(p => p.id === editingId)?.heightCm ?? null : null,
+      updatedAt: new Date().toISOString(),
+    };
+
+    if (editingId) {
+      updatePackage(editingId, payload);
+      notify("Package updated", "ok");
+    } else {
+      addPackage(payload);
+      notify("Package created with pending scan CBM", "ok");
+    }
+    resetForm();
+  };
+
+  const startEdit = (pkg) => {
+    setEditingId(pkg.id);
+    setForm({
+      customerName: pkg.customerName || "",
+      trackingNumber: pkg.trackingNumber || "",
+      itemName: pkg.itemName || "",
+      description: pkg.description || "",
+      supplier: pkg.supplier || "",
+      shipmentId: pkg.shipmentId || "",
+      quantity: String(pkg.quantity || 1),
+    });
+  };
+
+  const refreshScannedCBM = async () => {
+    try {
+      const response = await fetch("/api/scans");
+      if (!response.ok) throw new Error("sync failed");
+      const payload = await response.json();
+      const scans = Array.isArray(payload?.scans) ? payload.scans : [];
+
+      let updates = 0;
+      for (const pkg of orgPackages) {
+        const latest = scans.find(s => s.trackingNumber === pkg.trackingNumber);
+        if (!latest) continue;
+
+        updatePackage(pkg.id, {
+          cbm: Number(latest.cbm || 0),
+          lengthCm: Number(latest.lengthCm || 0),
+          widthCm: Number(latest.widthCm || 0),
+          heightCm: Number(latest.heightCm || 0),
+          updatedAt: new Date().toISOString(),
+        });
+        updates += 1;
+      }
+
+      notify(updates > 0 ? `Updated ${updates} package(s) from native scans` : "No new linked scans found", updates > 0 ? "ok" : "info");
+    } catch {
+      notify("Failed to refresh scan results from API", "err");
+    }
+  };
 
   return (
     <div className="afu">
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
-        <h2 style={{ fontSize: 20, fontWeight: 800, letterSpacing: "-.02em" }}>Shipments</h2>
-        <Btn label="+ Create Shipment" onClick={() => {
-          const sid = `SHP-${new Date().getFullYear()}-${Math.floor(100 + Math.random() * 900)}`;
-          addShipment({
-            id: Math.random().toString(36).substr(2, 9),
-            org: org.slug,
-            code: sid,
-            from: "Guangzhou",
-            to: org.slug === "stormglide" ? "Accra" : "Tema",
-            cbm: 0,
-            cap: 3.0,
-            items: 0,
-            status: "PENDING",
-            color: C.blue,
-            createdAt: new Date().toISOString()
-          });
-          notify(`Shipment ${sid} created!`, "ok");
-        }} />
+        <h2 style={{ fontSize: 20, fontWeight: 800, letterSpacing: "-.02em" }}>Package Records</h2>
+        <Btn label="Refresh Scanned CBM" onClick={refreshScannedCBM} />
       </div>
-      <div style={{ display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap" }}>
-        {statuses.map(s => (
-          <div key={s} onClick={() => setFilter(s)} style={{
-            padding: "5px 14px", borderRadius: 20, cursor: "pointer", fontSize: 11, fontWeight: 600,
-            background: filter === s ? C.blue : C.s2, color: filter === s ? "#fff" : C.mid, border: `1px solid ${filter === s ? C.blue : C.bd}`, transition: "all .15s"
-          }}>
-            {s}
-          </div>
-        ))}
-      </div>
+
+      <Card style={{ padding: 16, marginBottom: 16 }}>
+        <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 12 }}>{editingId ? "Edit Package" : "Create Package"}</div>
+        <div className="grid-mobile-1" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+          <Field label="Customer Name" value={form.customerName} onChange={(v) => updateForm("customerName", v)} />
+          <Field label="Tracking Number" value={form.trackingNumber} onChange={(v) => updateForm("trackingNumber", v)} />
+          <Field label="Item Name" value={form.itemName} onChange={(v) => updateForm("itemName", v)} />
+          <Field label="Supplier" value={form.supplier} onChange={(v) => updateForm("supplier", v)} />
+          <Field label="Shipment ID" value={form.shipmentId} onChange={(v) => updateForm("shipmentId", v)} />
+          <Field label="Quantity" type="number" value={form.quantity} onChange={(v) => updateForm("quantity", v)} />
+        </div>
+        <Field label="Description" value={form.description} onChange={(v) => updateForm("description", v)} />
+        <div style={{ display: "flex", gap: 8 }}>
+          <Btn label={editingId ? "Update Package" : "Create Package"} v="green" onClick={savePackage} />
+          {editingId && <Btn label="Cancel Edit" v="ghost" onClick={resetForm} />}
+        </div>
+      </Card>
+
       <Card>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
-          <thead><tr>{["Code", "Route", "CBM", "Fill", "Items", "Status", "Actions"].map(h => (
+          <thead><tr>{["Tracking", "Customer", "Item", "Shipment", "Qty", "CBM", "Status", "Actions"].map(h => (
             <th key={h} style={{ fontFamily: C.mono, fontSize: 9, fontWeight: 600, letterSpacing: ".12em", color: C.mid, textTransform: "uppercase", padding: "10px 16px", textAlign: "left", borderBottom: `1px solid ${C.bd}` }}>{h}</th>
           ))}</tr></thead>
-          <tbody>{filtered.map(s => (
-            <tr key={s.id} style={{ borderBottom: `1px solid ${C.bd}` }}>
-              <td data-label="Code" style={{ padding: "11px 16px", fontFamily: C.mono, fontSize: 11, color: C.blue, fontWeight: 700 }}>{s.code}</td>
-              <td data-label="Route" style={{ padding: "11px 16px", fontSize: 12, color: C.mid }}>{s.from} → {s.to}</td>
-              <td data-label="CBM" style={{ padding: "11px 16px", fontFamily: C.mono, fontSize: 12, fontWeight: 700, color: s.color }}>{s.cbm}</td>
-              <td data-label="Fill" style={{ padding: "11px 16px", width: 120 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <div style={{ flex: 1, height: 4, background: C.bd, borderRadius: 2 }}>
-                    <div style={{ height: "100%", width: `${(s.cbm / s.cap) * 100}%`, background: s.color, borderRadius: 2 }} />
-                  </div>
-                  <span style={{ fontFamily: C.mono, fontSize: 10, color: C.mid, flexShrink: 0 }}>{Math.round(s.cbm / s.cap * 100)}%</span>
-                </div>
-              </td>
-              <td data-label="Items" style={{ padding: "11px 16px", fontFamily: C.mono, fontSize: 12 }}>{s.items}</td>
-              <td data-label="Status" style={{ padding: "11px 16px" }}><Chip label={s.status} color={s.color} /></td>
+          <tbody>{orgPackages.map(pkg => (
+            <tr key={pkg.id} style={{ borderBottom: `1px solid ${C.bd}` }}>
+              <td data-label="Tracking" style={{ padding: "11px 16px", fontFamily: C.mono, fontSize: 11, color: C.blue, fontWeight: 700 }}>{pkg.trackingNumber}</td>
+              <td data-label="Customer" style={{ padding: "11px 16px", fontSize: 12 }}>{pkg.customerName}</td>
+              <td data-label="Item" style={{ padding: "11px 16px", fontSize: 12, color: C.mid }}>{pkg.itemName || "-"}</td>
+              <td data-label="Shipment" style={{ padding: "11px 16px", fontFamily: C.mono, fontSize: 11 }}>{pkg.shipmentId || "-"}</td>
+              <td data-label="Qty" style={{ padding: "11px 16px", fontFamily: C.mono, fontSize: 12 }}>{pkg.quantity}</td>
+              <td data-label="CBM" style={{ padding: "11px 16px", fontFamily: C.mono, fontSize: 12, fontWeight: 700, color: pkg.cbm == null ? C.amber : C.green }}>{pkg.cbm == null ? "—" : Number(pkg.cbm).toFixed(4)}</td>
+              <td data-label="Status" style={{ padding: "11px 16px" }}><Chip label={pkg.cbm == null ? "PENDING SCAN" : "SCANNED"} color={pkg.cbm == null ? C.amber : C.green} /></td>
               <td data-label="Actions" style={{ padding: "11px 16px" }}>
                 <div style={{ display: "flex", gap: 6 }}>
-                  <Btn label="View" v="ghost" sz="sm" onClick={() => notify(`Opening ${s.code}...`, "info")} />
-                  <Btn label="Export" v="ghost" sz="sm" onClick={() => notify(`Downloading ${s.code} packing list...`, "ok")} />
+                  <Btn label="Edit" v="ghost" sz="sm" onClick={() => startEdit(pkg)} />
                 </div>
               </td>
             </tr>
@@ -1437,21 +1506,10 @@ function ShipmentsTab({ org, user }) {
 // ─── LIDAR SCANNER COMPONENT ──────────────────────────────────
 function LidarScanner({ onLock, onCancel }) {
   const [active, setActive] = useState(false);
-  const [prog, setProg] = useState(0);
-  const [simDims, setSimDims] = useState({ l: 0, w: 0, h: 0 });
-  const [dist, setDist] = useState(3.5); // Start far away
-  const [aiMsg, setAiMsg] = useState("AI: Initializing environmental depth map...");
-  const [phase, setPhase] = useState("GUIDANCE"); // GUIDANCE | CONFIRM | SCANNING | LOCKED
-  const [scale, setScale] = useState("TINY"); // Auto-detected for simulation stability
+  const [hasCamera, setHasCamera] = useState(false);
+  const [aiMsg, setAiMsg] = useState("LiDAR measurement requires native iOS ARKit scanning.");
+  const [nativeMeasure, setNativeMeasure] = useState(null);
   const videoRef = useRef(null);
-
-  // Calibration Config
-  const SCALES = {
-    TINY: { label: "Tiny (1-10cm)", opt: 0.3, range: [1, 12], msg: "Micro-accuracy enabled." },
-    SMALL: { label: "Small (12-30cm)", opt: 0.8, range: [12, 35], msg: "Standard parcel mode." },
-    MEDIUM: { label: "Medium (35-80cm)", opt: 1.5, range: [35, 85], msg: "Carton/Box calibration." },
-    LARGE: { label: "Large (80cm+)", opt: 2.5, range: [85, 200], msg: "Bulk/Pallet mode active." },
-  };
 
   useEffect(() => {
     let stream = null;
@@ -1459,10 +1517,13 @@ function LidarScanner({ onLock, onCancel }) {
       try {
         stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
         if (videoRef.current) videoRef.current.srcObject = stream;
+        setHasCamera(true);
         setActive(true);
-      } catch (err) {
-        notify("Using radar simulation mode.", "err");
+        setAiMsg("Camera active. Waiting for native ARKit LiDAR measurement...");
+      } catch {
+        setHasCamera(false);
         setActive(true);
+        setAiMsg("Camera unavailable in browser. Open iOS app for LiDAR measurement.");
       }
     }
     start();
@@ -1470,253 +1531,196 @@ function LidarScanner({ onLock, onCancel }) {
   }, []);
 
   useEffect(() => {
-    if (!active || phase === "SCALE_QUERY") return;
-    const config = SCALES[scale || "MEDIUM"];
+    if (!active) return;
 
-    const int = setInterval(() => {
-      // 1. Distance Guidance Phase
-      if (phase === "GUIDANCE") {
-        setDist(d => {
-          if (d <= config.opt) {
-            setPhase("CONFIRM");
-            setAiMsg(`AI: ${config.label} detected. Ready to scan?`);
-            return config.opt;
-          }
-          return parseFloat((d - 0.1).toFixed(1));
-        });
-        if (dist > config.opt + 1) setAiMsg(`AI: Move closer. Target: ${config.opt}m.`);
-        else if (dist > config.opt) setAiMsg("AI: Almost there. Hold steady...");
-      }
+    const receiveNative = (event) => {
+      const payload = event?.data;
+      if (!payload || payload.type !== "cargoscan_lidar_measurement") return;
 
-      // 2. Scanning Phase
-      if (phase === "SCANNING") {
-        setProg(p => {
-          if (p >= 100) {
-            setPhase("LOCKED");
-            setAiMsg(`AI: 360° Scan complete. Accuracy 99.9%.`);
-            return 100;
-          }
-          const next = p + Math.random() * 7;
-          setSimDims({
-            l: (config.range[0] + Math.random() * (config.range[1] - config.range[0])).toFixed(1),
-            w: (config.range[0] + Math.random() * (config.range[1] - config.range[0])).toFixed(1),
-            h: (config.range[0] + Math.random() * (config.range[1] - config.range[0])).toFixed(1),
-          });
-          if (p < 30) setAiMsg("AI: Pan around the right corner...");
-          else if (p < 60) setAiMsg("AI: Capture the rear depth...");
-          else if (p < 90) setAiMsg("AI: Finalizing volumetric map...");
-          return next;
-        });
-      }
-    }, 200);
-    return () => clearInterval(int);
-  }, [active, phase, dist, scale]);
+      const d = payload.data || {};
+      const l = Number(d.lengthCm);
+      const w = Number(d.widthCm);
+      const h = Number(d.heightCm);
+      const confidence = Number(d.confidenceScore);
+      const ok = Number.isFinite(l) && Number.isFinite(w) && Number.isFinite(h) && l > 0 && w > 0 && h > 0;
+      if (!ok) return;
+
+      setNativeMeasure({
+        l: l.toFixed(1),
+        w: w.toFixed(1),
+        h: h.toFixed(1),
+        confidence: Number.isFinite(confidence) ? Math.round(Math.max(0, Math.min(100, confidence))) : null,
+        source: d.source || "ARKit LiDAR",
+      });
+      setAiMsg("Real LiDAR geometry captured. Ready to lock.");
+    };
+
+    window.addEventListener("message", receiveNative);
+    return () => window.removeEventListener("message", receiveNative);
+  }, [active]);
+
+  const openIOSApp = () => {
+    const returnUrl = encodeURIComponent(window.location.href);
+    window.location.href = `cargoscan://scan?return_url=${returnUrl}`;
+  };
 
   return (
     <div style={{ position: "fixed", inset: 0, background: "#000", zIndex: 2000, display: "flex", flexDirection: "column", color: "#fff" }}>
       <div style={{ flex: 1, position: "relative", overflow: "hidden" }}>
         <video ref={videoRef} autoPlay playsInline muted style={{ width: "100%", height: "100%", objectFit: "cover", opacity: 0.6 }} />
 
-        {/* AUTOMATED SCALE DETECTION MESSAGE (SIMULATED) */}
-        {phase === "GUIDANCE" && dist > 3.0 && (
-          <div className="afu" style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 5, pointerEvents: "none" }}>
-            <div style={{ background: "rgba(0,0,0,0.8)", padding: "12px 20px", borderRadius: 40, border: `1px solid ${C.blue}40`, color: "#fff", fontSize: 13, fontWeight: 700 }}>
-              AI: Detecting object scale...
+        <div style={{ position: "absolute", inset: 0, background: "linear-gradient(to top, rgba(0,0,0,0.88), rgba(0,0,0,0.35) 40%, rgba(0,0,0,0.25))" }} />
+
+        <div style={{ position: "absolute", top: 20, left: 16, right: 16 }}>
+          <div style={{ background: "rgba(0,0,0,0.82)", border: `1px solid ${C.blue}40`, borderRadius: 12, padding: "12px 16px", backdropFilter: "blur(8px)" }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: "#fff", marginBottom: 6 }}>{aiMsg}</div>
+            <div style={{ fontSize: 11, color: "#9EB3D6" }}>
+              Browser camera access does not expose ARKit LiDAR depth maps. Real auto-measurement is accepted only from native iOS scanner output.
             </div>
           </div>
-        )}
+        </div>
 
-        {/* AR Depth Mesh Overlay */}
-        <div style={{ position: "absolute", inset: 0, background: phase === "SCANNING" ? "rgba(0,212,138,0.03)" : "none", pointerEvents: "none" }} />
-        <svg style={{ position: "absolute", inset: 0, width: "100%", height: "100%", opacity: 0.3 }} viewBox="0 0 100 100">
-          <defs><pattern id="grid" width="8" height="8" patternUnits="userSpaceOnUse"><path d="M 8 0 L 0 0 0 8" fill="none" stroke={C.green} strokeWidth="0.05" /></pattern></defs>
-          <rect width="100" height="100" fill="url(#grid)" />
-          {phase === "SCANNING" && [...Array(30)].map((_, i) => (
-            <circle key={i} cx={Math.random() * 100} cy={Math.random() * 100} r="0.15" fill={C.green}>
-              <animate attributeName="opacity" values="0;1;0" dur={`${0.5 + Math.random()}s`} repeatCount="indefinite" />
-            </circle>
-          ))}
-        </svg>
-
-        {/* AI HUD TOP */}
-        {phase !== "SCALE_QUERY" && (
-          <div style={{ position: "absolute", top: 20, left: 16, right: 16 }}>
-            <div style={{ background: "rgba(0,0,0,0.8)", border: `1px solid ${C.blue}40`, borderRadius: 12, padding: "12px 16px", backdropFilter: "blur(10px)", display: "flex", alignItems: "center", gap: 12 }}>
-              <div style={{ width: 10, height: 10, borderRadius: "50%", background: C.blue, animation: "pulse 1.5s infinite" }} />
-              <div style={{ fontSize: 13, fontWeight: 700, color: "#fff" }}>{aiMsg}</div>
-            </div>
-            <div style={{ display: "flex", justifyContent: "space-between", marginTop: 12 }}>
-              <div><div style={{ fontSize: 10, opacity: 0.6, textTransform: "uppercase" }}>Distance</div><div style={{ fontFamily: C.mono, fontSize: 18, fontWeight: 700, color: dist <= SCALES[scale]?.opt + 0.2 ? C.green : "#fff" }}>{dist}m</div></div>
-              <div style={{ textAlign: "right" }}><div style={{ fontSize: 10, opacity: 0.6, textTransform: "uppercase" }}>Scan Quality</div><div style={{ fontFamily: C.mono, fontSize: 18, fontWeight: 700, color: prog > 90 ? C.green : "#fff" }}>{Math.floor(prog)}%</div></div>
-            </div>
-          </div>
-        )}
-
-        {/* SCAN GUIDES */}
-        {phase !== "SCALE_QUERY" && (
+        {!nativeMeasure && (
           <div style={{
-            position: "absolute", top: "50%", left: "50%", transform: "translate(-50%,-50%)",
-            width: scale === "TINY" ? 120 : 240, height: scale === "TINY" ? 120 : 240,
-            border: `2px solid ${phase === "LOCKED" ? C.green : phase === "CONFIRM" ? C.blue : "#fff"}`,
-            borderRadius: 24, transition: "all .4s", boxShadow: phase === "LOCKED" ? `0 0 60px ${C.green}50` : "none"
+            position: "absolute", left: 16, right: 16, bottom: 130,
+            background: "rgba(0,0,0,0.86)", border: `1px solid ${C.bd}`, borderRadius: 14, padding: 16
           }}>
-            {phase === "CONFIRM" && (
-              <div className="afu" style={{ position: "absolute", bottom: -100, left: "50%", transform: "translateX(-50%)", width: 220, textAlign: "center" }}>
-                <Btn label="Confirm & Start AI Scan →" v="primary" full sz="sm" onClick={() => { setPhase("SCANNING"); setProg(1); }} />
-              </div>
-            )}
+            <div style={{ fontSize: 12, fontWeight: 700, color: C.amber, marginBottom: 8 }}>No real LiDAR depth measurement received</div>
+            <div style={{ fontSize: 11, color: C.mid, lineHeight: 1.5 }}>
+              Pointing at a flat surface should not generate dimensions. This scanner rejects guessed values and waits for native ARKit geometry output.
+            </div>
           </div>
         )}
 
-        {/* DIMS RESULT */}
-        {phase !== "GUIDANCE" && phase !== "SCALE_QUERY" && (
-          <div className="afu" style={{ position: "absolute", bottom: 120, left: 16, right: 16, background: "rgba(0,0,0,0.85)", backdropFilter: "blur(20px)", borderRadius: 16, padding: 18, border: `1px solid ${C.bd}30` }}>
+        {nativeMeasure && (
+          <div className="afu" style={{ position: "absolute", bottom: 120, left: 16, right: 16, background: "rgba(0,0,0,0.85)", backdropFilter: "blur(20px)", borderRadius: 16, padding: 18, border: `1px solid ${C.green}55` }}>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
-              {["Length", "Width", "Height"].map((l) => (
-                <div key={l} style={{ textAlign: "center" }}>
-                  <div style={{ fontSize: 9, opacity: 0.5, textTransform: "uppercase", marginBottom: 4 }}>{l}</div>
-                  <div style={{ fontFamily: C.mono, fontSize: 18, fontWeight: 700, color: phase === "LOCKED" ? C.green : "#fff" }}>
-                    {simDims[l[0].toLowerCase()]}<span style={{ fontSize: 10, opacity: 0.7, marginLeft: 2 }}>cm</span>
+              {["Length", "Width", "Height"].map((label) => {
+                const key = label[0].toLowerCase();
+                return (
+                  <div key={label} style={{ textAlign: "center" }}>
+                    <div style={{ fontSize: 9, opacity: 0.5, textTransform: "uppercase", marginBottom: 4 }}>{label}</div>
+                    <div style={{ fontFamily: C.mono, fontSize: 18, fontWeight: 700, color: C.green }}>
+                      {nativeMeasure[key]}<span style={{ fontSize: 10, opacity: 0.7, marginLeft: 2 }}>cm</span>
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
+            </div>
+            <div style={{ marginTop: 12, fontSize: 10.5, color: C.mid }}>
+              Source: {nativeMeasure.source}{nativeMeasure.confidence != null ? ` · Confidence ${nativeMeasure.confidence}%` : ""}
             </div>
           </div>
         )}
       </div>
 
       <div style={{ padding: "24px 20px calc(24px + env(safe-area-inset-bottom))", background: "#080808", borderTop: `1px solid ${C.bd}30`, display: "flex", gap: 12 }}>
+        {!nativeMeasure && (
+          <Btn label={hasCamera ? "Open iOS LiDAR App" : "Open iOS App"} v="primary" style={{ flex: 2 }} sz="lg" onClick={openIOSApp} />
+        )}
         <Btn label="Abort" v="ghost" style={{ flex: 1 }} onClick={onCancel} />
-        <Btn label="Final Lock →" v="green" style={{ flex: 2 }} sz="lg" disabled={phase !== "LOCKED"} onClick={() => onLock(simDims)} />
+        <Btn label="Final Lock →" v="green" style={{ flex: 2 }} sz="lg" disabled={!nativeMeasure} onClick={() => onLock(nativeMeasure)} />
       </div>
-
-      <style>{`
-        @keyframes scanMove { 0% { transform: translateY(0); } 50% { transform: translateY(180px); } 100% { transform: translateY(0); } }
-        @keyframes pulse { 0% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.4); opacity: 0.5; } 100% { transform: scale(1); opacity: 1; } }
-      `}</style>
     </div>
   );
 }
-
 // ─── SCAN TAB ──────────────────────────────────────────────────
 function ScanTab({ org }) {
-  const { addShipment, updateOrg } = usePlatform();
-  const [mode, setMode] = useState("MANUAL"); // MANUAL | LIDAR
-  const [dims, setDims] = useState({ l: "", w: "", h: "" });
-  const [guide, setGuide] = useState(true);
+  const [nativeScans, setNativeScans] = useState([]);
+  const [syncState, setSyncState] = useState("idle");
 
-  // Math Precision: Ensure robust parsing and exact rounding avoiding floating point drift
-  const lv = Number.parseFloat(dims.l) || 0;
-  const wv = Number.parseFloat(dims.w) || 0;
-  const hv = Number.parseFloat(dims.h) || 0;
+  useEffect(() => {
+    const stored = localStorage.getItem(`cs_native_scans_${org.slug}`);
+    if (!stored) return;
+    try {
+      const parsed = JSON.parse(stored);
+      if (Array.isArray(parsed)) setNativeScans(parsed);
+    } catch {
+      setNativeScans([]);
+    }
+  }, [org.slug]);
 
-  const cbm = (lv > 0 && wv > 0 && hv > 0)
-    ? ((lv * wv * hv) / 1000000).toFixed(4)
-    : null;
-
-  const cost = cbm ? (parseFloat(cbm) * org.cbmRate).toFixed(2) : null;
-
-  // Fake LiDAR confidence for visual consistency with iOS
-  const conf = cbm ? Math.min(99, Math.floor(88 + Math.random() * 11)) : 0;
-  const confCol = conf >= 96 ? C.green : conf >= 90 ? C.amber : C.red;
+  const refreshFromApi = async () => {
+    setSyncState("syncing");
+    try {
+      const response = await fetch(`/api/scans?org=${encodeURIComponent(org.slug)}`);
+      if (!response.ok) throw new Error("sync failed");
+      const payload = await response.json();
+      const scans = Array.isArray(payload?.scans) ? payload.scans : [];
+      setNativeScans(scans);
+      localStorage.setItem(`cs_native_scans_${org.slug}`, JSON.stringify(scans));
+      setSyncState("ok");
+    } catch {
+      setSyncState("offline");
+    }
+  };
 
   return (
     <div className="afu">
-      <h2 style={{ fontSize: 20, fontWeight: 800, letterSpacing: "-.02em", marginBottom: 4 }}>Scan Cargo</h2>
-      <p style={{ fontSize: 12, color: C.mid, marginBottom: 20 }}>Use iPhone LiDAR for 3D measurement, or manual entry below.</p>
+      <h2 style={{ fontSize: 20, fontWeight: 800, letterSpacing: "-.02em", marginBottom: 4 }}>Native LiDAR Scanner</h2>
+      <p style={{ fontSize: 12, color: C.mid, marginBottom: 20 }}>
+        Automatic CBM measurement now runs only in the iOS app using ARKit + LiDAR + camera + motion sensors.
+      </p>
 
-      <div style={{ display: "flex", background: C.s1, borderRadius: 10, padding: 4, marginBottom: 20, border: `1px solid ${C.bd}` }}>
-        <button onClick={() => setMode("LIDAR")} style={{ flex: 1, padding: "8px", borderRadius: 8, border: "none", cursor: "pointer", fontSize: 12, fontWeight: 700, transition: "all .2s", background: mode === "LIDAR" ? C.blue : "transparent", color: mode === "LIDAR" ? "#fff" : C.mid, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
-          🎥 Live LiDAR
-        </button>
-        <button onClick={() => setMode("MANUAL")} style={{ flex: 1, padding: "8px", borderRadius: 8, border: "none", cursor: "pointer", fontSize: 12, fontWeight: 700, transition: "all .2s", background: mode === "MANUAL" ? C.blue : "transparent", color: mode === "MANUAL" ? "#fff" : C.mid, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
-          ⌨️ Manual
-        </button>
+      <Card style={{ padding: 18, border: `1px solid ${C.blue}50`, background: `${C.blue}0D`, marginBottom: 18 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: C.blue, marginBottom: 8 }}>Required capture flow</div>
+        <div style={{ display: "grid", gap: 8, fontSize: 12, color: C.txt }}>
+          <div>1. Scan cargo in the native iOS app.</div>
+          <div>2. Let on-device geometric validation complete (planes, edges, corners, multi-frame stability).</div>
+          <div>3. App syncs validated scan record to backend.</div>
+          <div>4. Web dashboard reads synced records only.</div>
+        </div>
+      </Card>
+
+      <div style={{ display: "flex", gap: 10, marginBottom: 16 }}>
+        <Btn label={syncState === "syncing" ? "Syncing..." : "Refresh Synced Scans"} v="primary" onClick={refreshFromApi} loading={syncState === "syncing"} />
+        <Btn label="Open iOS Scanner" v="outline" onClick={() => { window.location.href = "cargoscan://scan"; }} />
       </div>
 
-      {mode === "LIDAR" && <LidarScanner onCancel={() => setMode("MANUAL")} onLock={(d) => { setDims(d); setMode("MANUAL"); notify("LiDAR measurement captured", "ok"); }} />}
-
-      {guide && (
-        <Card style={{ padding: 16, marginBottom: 18, border: `1px solid ${C.blue}40`, background: `${C.blue}08` }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
-            <div style={{ fontWeight: 700, fontSize: 13, color: C.blue }}>🎥 Smart AI Scanning Guide</div>
-            <div onClick={() => setGuide(false)} style={{ color: C.mid, cursor: "pointer", fontSize: 16, lineHeight: 1 }}>×</div>
-          </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
-              <div style={{ background: C.blue, color: "#fff", width: 20, height: 20, borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, flexShrink: 0 }}>1</div>
-              <div style={{ fontSize: 12, color: C.txt, lineHeight: 1.4 }}><strong>Calibration:</strong> Select the object's scale (Tiny to Large). This calibrates the AI for maximum accuracy.</div>
-            </div>
-            <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
-              <div style={{ background: C.blue, color: "#fff", width: 20, height: 20, borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, flexShrink: 0 }}>2</div>
-              <div style={{ fontSize: 12, color: C.txt, lineHeight: 1.4 }}><strong>Assistance:</strong> Follow the AI prompts (e.g., "Move Closer"). Stand at the specified focal distance.</div>
-            </div>
-            <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
-              <div style={{ background: C.blue, color: "#fff", width: 20, height: 20, borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, flexShrink: 0 }}>3</div>
-              <div style={{ fontSize: 12, color: C.txt, lineHeight: 1.4 }}><strong>Lock:</strong> Capture 100% 360° coverage for a volume accuracy of 99.9%. Tapping "Finalize" locks the data.</div>
-            </div>
-          </div>
+      {syncState === "offline" && (
+        <Card style={{ padding: 12, border: `1px solid ${C.amber}50`, background: `${C.amber}10`, marginBottom: 14 }}>
+          <div style={{ fontSize: 12, color: C.amber, fontWeight: 700 }}>Backend sync unavailable.</div>
+          <div style={{ fontSize: 11, color: C.mid, marginTop: 4 }}>Showing last locally cached native scans for this organization.</div>
         </Card>
       )}
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 14 }}>
-        <Card style={{ padding: 22 }}>
-          <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 14 }}>Precise Manual Entry</div>
-          <p style={{ fontSize: 11, color: C.mid, marginBottom: 14 }}>Enter dimensions in CM. The system uses strict floating-point math for precision.</p>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 14 }}>
-            {["l", "w", "h"].map(k => (
-              <div key={k}>
-                <div style={{ fontSize: 10.5, fontWeight: 600, color: C.mid, letterSpacing: ".09em", textTransform: "uppercase", marginBottom: 5 }}>{k === "l" ? "Length" : k === "w" ? "Width" : "Height"} (cm)</div>
-                <input type="number" step="0.1" min="0" max="1500" value={dims[k]} onChange={e => {
-                  const val = parseFloat(e.target.value);
-                  if (val < 0) return; // STRICT positive validation
-                  setDims(p => ({ ...p, [k]: e.target.value }))
-                }} placeholder="0"
-                  style={{ width: "100%", background: C.s2, border: `1px solid ${C.bd}`, borderRadius: 8, color: C.txt, fontSize: 16, fontWeight: 700, fontFamily: C.mono, padding: "10px 12px", outline: "none", textAlign: "center" }} />
-              </div>
-            ))}
+      <Card>
+        {nativeScans.length === 0 ? (
+          <div style={{ padding: "40px 20px", textAlign: "center" }}>
+            <div style={{ fontSize: 14, fontWeight: 700, color: C.txt, marginBottom: 6 }}>No native scans synced yet</div>
+            <div style={{ fontSize: 12, color: C.mid }}>Use the iOS CargoScan app to capture and sync your first validated LiDAR measurement.</div>
           </div>
-          {cbm && (
-            <div className="azi" style={{ background: C.bg, border: `1px solid ${C.bd}`, borderRadius: 10, padding: 16, marginBottom: 14 }}>
-              <div className="grid-mobile-1" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                <div><div style={{ fontSize: 10, color: C.mid, letterSpacing: ".09em", textTransform: "uppercase", marginBottom: 4 }}>Volume (CBM)</div>
-                  <div style={{ fontFamily: C.mono, fontSize: 24, fontWeight: 700, color: C.blue }}>{cbm}</div></div>
-                <div><div style={{ fontSize: 10, color: C.mid, letterSpacing: ".09em", textTransform: "uppercase", marginBottom: 4 }}>Gross Est.</div>
-                  <div style={{ fontFamily: C.mono, fontSize: 24, fontWeight: 700, color: C.green }}>${cost}</div></div>
-              </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 12, paddingTop: 12, borderTop: `1px solid ${C.bd}` }}>
-                <div style={{ fontSize: 10, color: C.mid }}>Confidence Score Sync</div>
-                <div style={{ flex: 1, height: 4, background: C.bd, borderRadius: 2 }}><div style={{ width: `${conf}%`, height: "100%", background: confCol, borderRadius: 2 }} /></div>
-                <div style={{ fontFamily: C.mono, fontSize: 11, color: confCol, fontWeight: 600 }}>{conf}%</div>
-              </div>
-            </div>
-          )}
-          <Btn label="Save Cargo Record" v="green" full sz="lg" disabled={!cbm} onClick={() => {
-            const sid = `SHP-${new Date().getFullYear()}-${Math.floor(100 + Math.random() * 900)}`;
-            const newItem = {
-              id: Math.random().toString(36).substr(2, 9),
-              org: org.slug,
-              code: sid,
-              from: "Guangzhou",
-              to: org.slug === "stormglide" ? "Accra" : "Tema",
-              cbm: parseFloat(cbm),
-              cap: 2.0,
-              items: 1,
-              status: "RECEIVING",
-              color: C.indigo,
-              createdAt: new Date().toISOString()
-            };
-            addShipment(newItem);
-            updateOrg(org.slug, { usage: { ...org.usage, items: (org.usage.items || 0) + 1, ships: (org.usage.ships || 0) + 1 } });
-            notify(`Cargo logged at ${cbm} CBM in ${sid}`, "ok");
-            setDims({ l: "", w: "", h: "" });
-          }} />
-        </Card>
-      </div>
+        ) : (
+          <div className="scroll-container" style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 640 }}>
+              <thead>
+                <tr>
+                  {["Scan ID", "Length", "Width", "Height", "CBM", "Confidence", "Source", "Time"].map(h => (
+                    <th key={h} style={{ fontFamily: C.mono, fontSize: 9, fontWeight: 600, letterSpacing: ".08em", color: C.mid, textTransform: "uppercase", padding: "12px 14px", textAlign: "left", borderBottom: `1px solid ${C.bd}` }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {nativeScans.map(s => (
+                  <tr key={s.id} style={{ borderBottom: `1px solid ${C.bd}` }}>
+                    <td data-label="Scan" style={{ padding: "12px 14px", fontFamily: C.mono, fontSize: 11, color: C.blue }}>{String(s.id || "-").slice(0, 12)}</td>
+                    <td data-label="Length" style={{ padding: "12px 14px", fontFamily: C.mono, fontSize: 12 }}>{Number(s.lengthCm || 0).toFixed(1)} cm</td>
+                    <td data-label="Width" style={{ padding: "12px 14px", fontFamily: C.mono, fontSize: 12 }}>{Number(s.widthCm || 0).toFixed(1)} cm</td>
+                    <td data-label="Height" style={{ padding: "12px 14px", fontFamily: C.mono, fontSize: 12 }}>{Number(s.heightCm || 0).toFixed(1)} cm</td>
+                    <td data-label="CBM" style={{ padding: "12px 14px", fontFamily: C.mono, fontSize: 12, color: C.green }}>{Number(s.cbm || 0).toFixed(4)}</td>
+                    <td data-label="Confidence" style={{ padding: "12px 14px", fontFamily: C.mono, fontSize: 12 }}>{Math.round(Number(s.confidenceScore || 0) * (Number(s.confidenceScore || 0) <= 1 ? 100 : 1))}%</td>
+                    <td data-label="Source" style={{ padding: "12px 14px", fontSize: 12, color: C.mid }}>{s.source || "ARKit LiDAR"}</td>
+                    <td data-label="Time" style={{ padding: "12px 14px", fontSize: 12, color: C.mid }}>{s.createdAt ? new Date(s.createdAt).toLocaleString() : "-"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
     </div>
   );
 }
-
 // ─── DISPUTES TAB ──────────────────────────────────────────────
 function DisputesTab() {
   const { data: pData, updateDispute } = usePlatform();

@@ -18,6 +18,10 @@ struct ScannerView: View {
                     .padding(.top, 50)
                     .padding(.horizontal, 20)
 
+                modeControls
+                    .padding(.horizontal, 16)
+                    .padding(.top, 8)
+
                 Spacer()
 
                 bottomPanel
@@ -34,6 +38,56 @@ struct ScannerView: View {
             .padding(.horizontal, 14)
             .padding(.vertical, 10)
             .background(Color.black.opacity(0.75), in: Capsule())
+    }
+
+    private var modeControls: some View {
+        VStack(spacing: 10) {
+            Picker("Scanner Mode", selection: Binding(get: {
+                viewModel.scannerMode
+            }, set: { mode in
+                viewModel.setMode(mode)
+            })) {
+                Text("Linked Scan").tag(ScannerMode.linked)
+                Text("Quick Scan").tag(ScannerMode.quick)
+            }
+            .pickerStyle(.segmented)
+
+            if viewModel.scannerMode == .linked {
+                VStack(spacing: 8) {
+                    HStack(spacing: 8) {
+                        TextField("Tracking Number", text: $viewModel.trackingNumber)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .padding(10)
+                            .background(Color.black.opacity(0.65), in: RoundedRectangle(cornerRadius: 10))
+                            .foregroundColor(.white)
+
+                        Button(action: { viewModel.lookupLinkedPackage() }) {
+                            Text("Find")
+                                .font(.system(size: 14, weight: .bold))
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 10)
+                                .background(Color.blue, in: RoundedRectangle(cornerRadius: 10))
+                                .foregroundColor(.white)
+                        }
+                    }
+
+                    TextField("Operator ID", text: $viewModel.operatorID)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .padding(10)
+                        .background(Color.black.opacity(0.65), in: RoundedRectangle(cornerRadius: 10))
+                        .foregroundColor(.white)
+
+                    if let summary = viewModel.linkedPackageSummary {
+                        Text("Package: \(summary)")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundColor(.green)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+            }
+        }
     }
 
     private var bottomPanel: some View {
@@ -62,6 +116,15 @@ struct ScannerView: View {
 
                     ProgressView(value: viewModel.progress, total: 1)
                         .tint(.green)
+
+                    HStack {
+                        Text("Vision Edge Confidence")
+                        Spacer()
+                        Text("\(Int(viewModel.edgeConfidence * 100))%")
+                            .foregroundColor(.green)
+                    }
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(.white)
                 }
                 .padding(14)
                 .background(Color.black.opacity(0.75), in: RoundedRectangle(cornerRadius: 14))
@@ -91,6 +154,37 @@ struct ScannerView: View {
                             .foregroundColor(.green)
                     }
                     .foregroundColor(.white)
+
+                    HStack {
+                        Text("Sync")
+                        Spacer()
+                        Text(viewModel.syncStatusMessage)
+                            .fontWeight(.semibold)
+                            .foregroundColor(viewModel.pendingSyncCount == 0 ? .green : .orange)
+                    }
+                    .foregroundColor(.white)
+
+                    if viewModel.pendingSyncCount > 0 {
+                        HStack {
+                            Text("Queued")
+                            Spacer()
+                            Text("\(viewModel.pendingSyncCount)")
+                                .fontWeight(.bold)
+                                .foregroundColor(.orange)
+                        }
+                        .foregroundColor(.white)
+
+                        Button(action: {
+                            Task { await viewModel.retryPendingSync() }
+                        }) {
+                            Text("Retry Sync")
+                                .font(.system(size: 14, weight: .bold))
+                                .foregroundColor(.white)
+                                .frame(maxWidth: .infinity, minHeight: 42)
+                                .background(Color.blue)
+                                .clipShape(RoundedRectangle(cornerRadius: 10))
+                        }
+                    }
 
                     Button(action: { viewModel.resetForRescan() }) {
                         Text("Rescan")
