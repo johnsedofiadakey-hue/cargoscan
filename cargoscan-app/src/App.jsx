@@ -1348,6 +1348,8 @@ function DashTab({ org, user, onUpgrade }) {
 function ShipmentsTab({ org, user }) {
   const { data: pData, addPackage, updatePackage } = usePlatform();
   const [editingId, setEditingId] = useState(null);
+  const [syncing, setSyncing] = useState(false);
+  const apiBase = localStorage.getItem("cs_api_base") || "http://localhost:3000/api";
   const [form, setForm] = useState({
     customerName: "",
     trackingNumber: "",
@@ -1360,6 +1362,35 @@ function ShipmentsTab({ org, user }) {
 
   const orgPackages = (pData.packages || []).filter(pkg => pkg.org === org.slug);
   const updateForm = (key, value) => setForm(prev => ({ ...prev, [key]: value }));
+
+  const pullPackagesFromApi = async () => {
+    setSyncing(true);
+    try {
+      const response = await fetch(`${apiBase}/packages`);
+      if (!response.ok) throw new Error("load failed");
+      const payload = await response.json();
+      const remote = Array.isArray(payload?.packages) ? payload.packages : [];
+      const scoped = remote.filter(pkg => pkg.org === org.slug);
+
+      for (const pkg of scoped) {
+        const existing = orgPackages.find(p => p.id === pkg.id || p.trackingNumber === pkg.trackingNumber);
+        if (existing) {
+          updatePackage(existing.id, pkg);
+        } else {
+          addPackage(pkg);
+        }
+      }
+    } catch {
+      notify("Unable to load packages from API. Showing local records.", "info");
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  useEffect(() => {
+    pullPackagesFromApi();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [org.slug]);
 
   const resetForm = () => {
     setForm({
@@ -1374,7 +1405,7 @@ function ShipmentsTab({ org, user }) {
     setEditingId(null);
   };
 
-  const savePackage = () => {
+  const savePackage = async () => {
     if (!form.trackingNumber.trim()) {
       notify("Tracking number is required", "err");
       return;
@@ -1403,10 +1434,28 @@ function ShipmentsTab({ org, user }) {
 
     if (editingId) {
       updatePackage(editingId, payload);
-      notify("Package updated", "ok");
+      try {
+        await fetch(`${apiBase}/packages/${encodeURIComponent(payload.trackingNumber)}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        notify("Package updated", "ok");
+      } catch {
+        notify("Package updated locally. API sync failed.", "info");
+      }
     } else {
       addPackage(payload);
-      notify("Package created with pending scan CBM", "ok");
+      try {
+        await fetch(`${apiBase}/packages`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ package: payload }),
+        });
+        notify("Package created with pending scan CBM", "ok");
+      } catch {
+        notify("Package created locally. API sync failed.", "info");
+      }
     }
     resetForm();
   };
@@ -1426,7 +1475,7 @@ function ShipmentsTab({ org, user }) {
 
   const refreshScannedCBM = async () => {
     try {
-      const response = await fetch("/api/scans");
+      const response = await fetch(`${apiBase}/scans`);
       if (!response.ok) throw new Error("sync failed");
       const payload = await response.json();
       const scans = Array.isArray(payload?.scans) ? payload.scans : [];
@@ -1456,7 +1505,10 @@ function ShipmentsTab({ org, user }) {
     <div className="afu">
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
         <h2 style={{ fontSize: 20, fontWeight: 800, letterSpacing: "-.02em" }}>Package Records</h2>
-        <Btn label="Refresh Scanned CBM" onClick={refreshScannedCBM} />
+        <div style={{ display: "flex", gap: 8 }}>
+          <Btn label={syncing ? "Syncing..." : "Sync Packages"} onClick={pullPackagesFromApi} loading={syncing} />
+          <Btn label="Refresh Scanned CBM" onClick={refreshScannedCBM} />
+        </div>
       </div>
 
       <Card style={{ padding: 16, marginBottom: 16 }}>
