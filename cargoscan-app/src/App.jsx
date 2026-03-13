@@ -7,21 +7,66 @@ export const usePlatform = () => useContext(PlatformContext);
 const PLATFORM_VERSION = 5;
 
 export function PlatformProvider({ children }) {
-  const [platform, setPlatform] = useState(() => {
-    const saved = localStorage.getItem("cs_platform");
-    const ver = localStorage.getItem("cs_platform_v");
-    if (saved && ver && parseInt(ver) >= PLATFORM_VERSION) {
-      return JSON.parse(saved);
-    }
-    localStorage.removeItem("cs_platform");
-    localStorage.setItem("cs_platform_v", String(PLATFORM_VERSION));
-    return INITIAL_PLATFORM;
-  });
+  const [platform, setPlatform] = useState(INITIAL_PLATFORM);
+
+  const fetchBackendData = useCallback(() => {
+    const token = localStorage.getItem("cs_token");
+    if (!token) return;
+
+    // Fetch shipments
+    fetch("http://localhost:3000/api/shipments", { headers: { "Authorization": `Bearer ${token}` }})
+      .then(r => r.json())
+      .then(shipments => {
+         if (!shipments.error && Array.isArray(shipments)) {
+           setPlatform(p => ({
+             ...p,
+             shipments: shipments.map(s => ({
+               id: s.id,
+               org: "stormglide", // Keep basic routing alive
+               code: s.code,
+               from: s.from,
+               to: s.to,
+               cbm: s.totalCbm || 0,
+               cap: s.cbmCapacity || 2.5,
+               items: s.itemsCount || 0,
+               status: s.status,
+               color: C.blue,
+               createdAt: s.createdAt
+             }))
+           }));
+         }
+      })
+      .catch(e => console.error("Error fetching shipments:", e));
+
+    // Fetch disputes
+    fetch("http://localhost:3000/api/disputes", { headers: { "Authorization": `Bearer ${token}` }})
+      .then(r => r.json())
+      .then(disputes => {
+         if (!disputes.error && Array.isArray(disputes)) {
+           setPlatform(p => ({
+             ...p,
+             disputes: disputes.map(d => ({
+               id: d.id,
+               org: "stormglide",
+               item: d.cargoItemId,
+               cbm1: d.originCbm,
+               cbm2: d.destinationCbm,
+               gap: Math.abs(d.originCbm - d.destinationCbm),
+               status: d.status,
+               notes: d.notes,
+               createdAt: d.createdAt
+             }))
+           }));
+         }
+      })
+      .catch(e => console.error("Error fetching disputes:", e));
+  }, []);
 
   useEffect(() => {
-    localStorage.setItem("cs_platform", JSON.stringify(platform));
-    localStorage.setItem("cs_platform_v", String(PLATFORM_VERSION));
-  }, [platform]);
+    fetchBackendData();
+    const interval = setInterval(fetchBackendData, 5000);
+    return () => clearInterval(interval);
+  }, [fetchBackendData]);
 
   const api = {
     data: platform,
@@ -33,10 +78,19 @@ export function PlatformProvider({ children }) {
     updateOrg: (slug, changes) => setPlatform(p => ({
       ...p, orgs: { ...p.orgs, [slug]: { ...p.orgs[slug], ...changes } }
     })),
-    addShipment: (s) => setPlatform(p => ({ ...p, shipments: [s, ...p.shipments] })),
-    updateShipment: (id, cls) => setPlatform(p => ({
-      ...p, shipments: p.shipments.map(s => s.id === id ? { ...s, ...cls } : s)
-    })),
+    addShipment: (s) => {
+      setPlatform(p => ({ ...p, shipments: [s, ...p.shipments] }));
+      // Fire-and-forget to backend with a fake warehouse for prototype
+      const token = localStorage.getItem("cs_token");
+      if (token) fetch("http://localhost:3000/api/shipments", { method: "POST", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` }, body: JSON.stringify({ code: s.code, from: s.from, to: s.to, cbmCapacity: s.cap, warehouseId: "1" }) }).catch(e => console.error(e));
+    },
+    updateShipment: (id, cls) => {
+      setPlatform(p => ({
+        ...p, shipments: p.shipments.map(s => s.id === id ? { ...s, ...cls } : s)
+      }));
+      const token = localStorage.getItem("cs_token");
+      if (token) fetch(`http://localhost:3000/api/shipments/${id}`, { method: "PUT", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` }, body: JSON.stringify(cls) }).catch(e => console.error(e));
+    },
     addDispute: (d) => setPlatform(p => ({ ...p, disputes: [d, ...p.disputes] })),
     updateDispute: (id, cls) => setPlatform(p => ({
       ...p, disputes: p.disputes.map(d => d.id === id ? { ...d, ...cls } : d)
@@ -436,24 +490,31 @@ function LoginScreen({ onSuccess, onSignup }) {
   const attempt = useCallback(() => {
     if (!email.trim() || !pass) { setErr("Please enter your email address and password."); return; }
     setLoad(true); setErr("");
-    setTimeout(() => {
-      // Super admin — silent check, never shown
-      if (email === pData._sa.email && pass === pData._sa.pass) {
-        onSuccess({ type: "superadmin", user: { name: pData._sa.name, email } });
-        return;
-      }
-      // Org users
-      const u = pData.users.find(x => x.email === email && x.pass === pass);
-      if (u) {
-        if (!u.active) { setErr("Your account has been deactivated. Contact your organisation admin."); setLoad(false); return; }
-        const org = pData.orgs[u.org];
-        onSuccess({ type: "org", user: u, org });
-        return;
-      }
-      setErr("Incorrect email or password. Please try again.");
+    
+    fetch("http://localhost:3000/api/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password: pass })
+    })
+    .then(res => res.json())
+    .then(data => {
       setLoad(false);
-    }, 900);
-  }, [email, pass, onSuccess, pData]);
+      if (data.error) {
+        setErr(data.error);
+        return;
+      }
+      localStorage.setItem("cs_token", data.token);
+      if (data.user.role === "SUPER_ADMIN") {
+        onSuccess({ type: "superadmin", user: data.user });
+      } else {
+        onSuccess({ type: "org", user: data.user, org: data.organization });
+      }
+    })
+    .catch(err => {
+      setLoad(false);
+      setErr("Connection error. Is the backend running?");
+    });
+  }, [email, pass, onSuccess]);
 
   return (
     <div style={{ minHeight: "100vh", minHeight: "100dvh", display: "flex", flexDirection: "column" }}>
@@ -597,13 +658,34 @@ function SignupScreen({ onDone, onLogin }) {
     if (step === 1 && v1()) setStep(2);
     if (step === 2 && v2()) {
       setLoad(true);
-      setTimeout(() => {
-        const newOrg = { id: "o" + Date.now(), name: f.company, slug, country: f.country, city: f.city, plan: "TRIAL", cbmRate: parseFloat(f.cbm) || 85, trial: 7, createdAt: new Date().toISOString().split("T")[0], usage: { ships: 0, items: 0, users: 1 }, limits: { ships: 5, items: 50, users: 1 } };
-        const newUser = { id: "u" + Date.now(), org: slug, name: f.name, email: f.email, pass: f.pass, role: "ADMIN", active: true, seen: "Just now" };
-        createOrg(newOrg, newUser);
-        setCreated({ ...newOrg, email: f.email, password: f.pass, role: "ADMIN" });
-        setLoad(false); setStep(3);
-      }, 1200);
+      fetch("http://localhost:3000/api/auth/signup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: f.name,
+          email: f.email,
+          password: f.pass,
+          company: f.company,
+          country: f.country,
+          city: f.city,
+          cbmRate: f.cbm
+        })
+      })
+      .then(res => res.json())
+      .then(data => {
+        setLoad(false);
+        if (data.error) {
+          alert(data.error);
+          return;
+        }
+        localStorage.setItem("cs_token", data.token);
+        setCreated({ ...data.organization, email: f.email, password: f.pass, role: data.user.role });
+        setStep(3);
+      })
+      .catch(err => {
+        setLoad(false);
+        alert("Connection error. Is the backend running?");
+      });
     }
   };
 
@@ -2062,18 +2144,17 @@ function CargoScanInner() {
     notify("Signed out", "ok");
   }, []);
 
-  // Auto-login after signup: when signupResult is set, find the user in pData and log in
+  // Auto-login after signup: when signupResult is set, log in
   useEffect(() => {
-    if (signupResult) {
-      const u = pData.users.find(x => x.email === signupResult.email);
-      const o = pData.orgs[signupResult.slug];
-      if (u && o) {
-        onLogin({ type: "org", user: u, org: o });
-        setSignupResult(null);
-        notify("Welcome to CargoScan! Your 7-day trial is active.", "ok");
-      }
+    if (signupResult && signupResult.id && signupResult.role) { // Has user role 
+      // signupResult is a mix of org and user details we set earlier
+      const u = { name: signupResult.name, email: signupResult.email, role: signupResult.role };
+      const o = { id: signupResult.id, name: signupResult.name, slug: signupResult.slug, plan: signupResult.plan };
+      onLogin({ type: "org", user: u, org: o });
+      setSignupResult(null);
+      notify("Welcome to CargoScan! Your 7-day trial is active.", "ok");
     }
-  }, [signupResult, pData, onLogin]);
+  }, [signupResult, onLogin]);
 
   return (
     <>

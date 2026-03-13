@@ -1,0 +1,157 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model Organization {
+  id              String            @id @default(uuid())
+  name            String
+  slug            String            @unique
+  plan            String            @default("TRIAL")
+  planExpiresAt   DateTime?
+  defaultCbmRate  Float             @default(85.0)
+  country         String
+  city            String
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  users           User[]
+  warehouses      Warehouse[]
+  subscriptions   Subscription[]
+  auditLogs       AuditLog[]
+  shipments       Shipment[]
+}
+
+model User {
+  id              String            @id @default(uuid())
+  email           String            @unique
+  name            String
+  password        String
+  role            String            @default("OPERATOR") // ADMIN, SUPERVISOR, OPERATOR
+  active          Boolean           @default(true)
+  organizationId  String
+  organization    Organization      @relation(fields: [organizationId], references: [id])
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  scanResults     ScanResult[]
+  notificationLogs NotificationLog[]
+  disputes        Dispute[]         @relation("DisputeResolver")
+}
+
+model Warehouse {
+  id              String            @id @default(uuid())
+  name            String
+  organizationId  String
+  organization    Organization      @relation(fields: [organizationId], references: [id])
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  shipments       Shipment[]
+}
+
+model Shipment {
+  id              String            @id @default(uuid())
+  code            String            @unique
+  from            String
+  to              String
+  cbmCapacity     Float
+  status          String            @default("OPEN") // OPEN, LOADING, SEALED, IN_TRANSIT, ARRIVED, DELIVERED
+  organizationId  String
+  warehouseId     String
+  organization    Organization      @relation(fields: [organizationId], references: [id])
+  warehouse       Warehouse         @relation(fields: [warehouseId], references: [id])
+  cargoItems      CargoItem[]
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+}
+
+model CargoItem {
+  id              String            @id @default(uuid())
+  length          Float
+  width           Float
+  height          Float
+  cbm             Float
+  scanConfidence  Float
+  status          String            @default("SCANNED") // SCANNED, LOADED, DELIVERED
+  isDamaged       Boolean           @default(false)
+  shipmentId      String
+  shipment        Shipment          @relation(fields: [shipmentId], references: [id])
+  scanResults     ScanResult[]
+  disputes        Dispute[]
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+}
+
+model ScanResult {
+  id              String            @id @default(uuid())
+  length          Float
+  width           Float
+  height          Float
+  cbm             Float
+  confidence      Float
+  scannerDevice   String
+  photoUrl        String?
+  cargoItemId     String
+  operatorId      String
+  cargoItem       CargoItem         @relation(fields: [cargoItemId], references: [id])
+  operator        User              @relation(fields: [operatorId], references: [id])
+  createdAt       DateTime          @default(now())
+}
+
+model Dispute {
+  id              String            @id @default(uuid())
+  cargoItemId     String
+  resolverId      String?
+  status          String            @default("OPEN") // OPEN, RESOLVED, REJECTED
+  originCbm       Float
+  destinationCbm  Float
+  notes           String?
+  cargoItem       CargoItem         @relation(fields: [cargoItemId], references: [id])
+  resolver        User?             @relation("DisputeResolver", fields: [resolverId], references: [id])
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+}
+
+model Subscription {
+  id              String            @id @default(uuid())
+  organizationId  String
+  planCode        String
+  status          String            @default("ACTIVE")
+  provider        String            @default("PAYSTACK")
+  providerRef     String?
+  organization    Organization      @relation(fields: [organizationId], references: [id])
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+}
+
+model AuditLog {
+  id              String            @id @default(uuid())
+  organizationId  String
+  action          String
+  details         String?
+  userId          String?
+  organization    Organization      @relation(fields: [organizationId], references: [id])
+  createdAt       DateTime          @default(now())
+}
+
+model NotificationLog {
+  id              String            @id @default(uuid())
+  type            String            // WHATSAPP, EMAIL
+  recipient       String
+  template        String
+  status          String
+  userId          String?
+  user            User?             @relation(fields: [userId], references: [id])
+  createdAt       DateTime          @default(now())
+}
+
+model SyncQueue {
+  id              String            @id @default(uuid())
+  payload         String
+  status          String            @default("PENDING") // PENDING, SYNCED, ERROR
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+}
