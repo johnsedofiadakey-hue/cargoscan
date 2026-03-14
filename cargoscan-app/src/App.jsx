@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback, createContext, useContext } from "react";
 
+const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:3000/api";
+
 // --- PLATFORM STORE (Simulated DB) ---
 const PlatformContext = createContext(null);
 export const usePlatform = () => useContext(PlatformContext);
@@ -14,7 +16,7 @@ export function PlatformProvider({ children }) {
     if (!token) return;
 
     // Fetch shipments
-    fetch("http://localhost:3000/api/shipments", { headers: { "Authorization": `Bearer ${token}` }})
+    fetch(`${API_BASE}/shipments`, { headers: { "Authorization": `Bearer ${token}` }})
       .then(r => r.json())
       .then(shipments => {
          if (!shipments.error && Array.isArray(shipments)) {
@@ -39,7 +41,7 @@ export function PlatformProvider({ children }) {
       .catch(e => console.error("Error fetching shipments:", e));
 
     // Fetch disputes
-    fetch("http://localhost:3000/api/disputes", { headers: { "Authorization": `Bearer ${token}` }})
+    fetch(`${API_BASE}/disputes`, { headers: { "Authorization": `Bearer ${token}` }})
       .then(r => r.json())
       .then(disputes => {
          if (!disputes.error && Array.isArray(disputes)) {
@@ -82,14 +84,14 @@ export function PlatformProvider({ children }) {
       setPlatform(p => ({ ...p, shipments: [s, ...p.shipments] }));
       // Fire-and-forget to backend with a fake warehouse for prototype
       const token = localStorage.getItem("cs_token");
-      if (token) fetch("http://localhost:3000/api/shipments", { method: "POST", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` }, body: JSON.stringify({ code: s.code, from: s.from, to: s.to, cbmCapacity: s.cap, warehouseId: "1" }) }).catch(e => console.error(e));
+      if (token) fetch(`${API_BASE}/shipments`, { method: "POST", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` }, body: JSON.stringify({ code: s.code, from: s.from, to: s.to, cbmCapacity: s.cap, warehouseId: "1" }) }).catch(e => console.error(e));
     },
     updateShipment: (id, cls) => {
       setPlatform(p => ({
         ...p, shipments: p.shipments.map(s => s.id === id ? { ...s, ...cls } : s)
       }));
       const token = localStorage.getItem("cs_token");
-      if (token) fetch(`http://localhost:3000/api/shipments/${id}`, { method: "PUT", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` }, body: JSON.stringify(cls) }).catch(e => console.error(e));
+      if (token) fetch(`${API_BASE}/shipments/${id}`, { method: "PUT", headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` }, body: JSON.stringify(cls) }).catch(e => console.error(e));
     },
     addDispute: (d) => setPlatform(p => ({ ...p, disputes: [d, ...p.disputes] })),
     updateDispute: (id, cls) => setPlatform(p => ({
@@ -491,7 +493,7 @@ function LoginScreen({ onSuccess, onSignup }) {
     if (!email.trim() || !pass) { setErr("Please enter your email address and password."); return; }
     setLoad(true); setErr("");
     
-    fetch("http://localhost:3000/api/auth/login", {
+    fetch(`${API_BASE}/auth/login`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email, password: pass })
@@ -658,7 +660,7 @@ function SignupScreen({ onDone, onLogin }) {
     if (step === 1 && v1()) setStep(2);
     if (step === 2 && v2()) {
       setLoad(true);
-      fetch("http://localhost:3000/api/auth/signup", {
+      fetch(`${API_BASE}/auth/signup`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
