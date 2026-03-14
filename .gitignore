@@ -1,0 +1,11 @@
+node_modules/
+.DS_Store
+*.log
+.env
+.env.local
+.firebase/
+dist/
+/cargoscan-backend/node_modules/
+/cargoscan-app/node_modules/
+/cargoscan-ios-project/build/
+/cargoscan-ios-project/DerivedData/
