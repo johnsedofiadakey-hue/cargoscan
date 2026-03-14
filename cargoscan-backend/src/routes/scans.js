@@ -1,14 +1,27 @@
 const express = require("express");
+const { z } = require("zod");
 const { PrismaClient } = require("@prisma/client");
 const { authenticateToken } = require("../middleware/auth");
 
 const router = express.Router();
 const prisma = new PrismaClient();
 
+const scanSchema = z.object({
+  cargoItemId: z.string().uuid(),
+  length: z.number().positive().max(2000), // Max 20 meters just in case
+  width: z.number().positive().max(2000),
+  height: z.number().positive().max(2000),
+  cbm: z.number().nonnegative().max(100),
+  confidence: z.number().min(0).max(1),
+  scannerDevice: z.string().min(1),
+  photoUrl: z.string().url().optional().nullable(),
+});
+
 // Handle scanner incoming results
 router.post("/", authenticateToken, async (req, res) => {
   try {
-    const { cargoItemId, length, width, height, cbm, confidence, scannerDevice, photoUrl } = req.body;
+    const validatedData = scanSchema.parse(req.body);
+    const { cargoItemId, length, width, height, cbm, confidence, scannerDevice, photoUrl } = validatedData;
 
     const cargoItem = await prisma.cargoItem.findFirst({
       where: { id: cargoItemId, shipment: { organizationId: req.org.id } },
@@ -45,6 +58,9 @@ router.post("/", authenticateToken, async (req, res) => {
 
     res.status(201).json(scan);
   } catch (err) {
+    if (err instanceof z.ZodError) {
+      return res.status(400).json({ error: "Validation Error", details: err.errors });
+    }
     console.error(err);
     res.status(500).json({ error: "Failed to save scan result" });
   }
