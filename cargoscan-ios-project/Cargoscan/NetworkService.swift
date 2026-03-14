@@ -72,4 +72,25 @@ class NetworkService {
         // Success
         return "Scan saved successfully"
     }
+    
+    func saveScanWithRetries(payload: ScanPayload, maxRetries: Int = 3) async throws -> String {
+        var currentAttempt = 0
+        
+        while currentAttempt < maxRetries {
+            do {
+                return try await saveScan(payload: payload)
+            } catch {
+                currentAttempt += 1
+                if currentAttempt >= maxRetries {
+                    throw error
+                }
+                
+                // Exponential backoff: 1s, 2s, 4s...
+                let delay = UInt64(pow(2.0, Double(currentAttempt - 1))) * 1_000_000_000
+                try await Task.sleep(nanoseconds: delay)
+            }
+        }
+        
+        throw NetworkError.serverError("Max retries exceeded")
+    }
 }

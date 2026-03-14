@@ -566,7 +566,7 @@ struct ScannerView: View {
         
         Task {
             do {
-                let msg = try await NetworkService.shared.saveScan(payload: payload)
+                let msg = try await NetworkService.shared.saveScanWithRetries(payload: payload)
                 await MainActor.run {
                     self.isSaving = false
                     self.saveMessage = msg
