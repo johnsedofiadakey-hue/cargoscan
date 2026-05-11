@@ -120,6 +120,7 @@ final class ARScannerViewModel: NSObject, ObservableObject, ARSessionDelegate {
     @Published var pitchDegrees:     Float              = 0       // negative = looking down
     @Published var finalDimensions:  CargoDimensions?   = nil
     @Published var capturedImage:    UIImage?           = nil
+    @Published var classificationResult: String?        = nil
 
     /// Screen-space quadrilateral outline drawn over the detected box
     @Published var overlayCorners:   [CGPoint]          = []
@@ -349,7 +350,12 @@ final class ARScannerViewModel: NSObject, ObservableObject, ARSessionDelegate {
         if let hit = av.raycast(from: centre,
                                  allowing: .estimatedPlane,
                                  alignment: .any).first {
-            distanceMetres = hit.distance
+            let camPos = frame.camera.transform.columns.3
+            let hitPos = hit.worldTransform.columns.3
+            let dx = hitPos.x - camPos.x
+            let dy = hitPos.y - camPos.y
+            let dz = hitPos.z - camPos.z
+            distanceMetres = sqrt(dx*dx + dy*dy + dz*dz)
         }
 
         // 2. Camera pitch in degrees (ARKit: negative = looking down)
@@ -619,11 +625,11 @@ final class ARScannerViewModel: NSObject, ObservableObject, ARSessionDelegate {
         ]
 
         // Project each world corner to screen space via clip coordinates
-        let PV = frame.camera.projectionMatrix(for:          av.frame.size,
-                                                orientation:  .portrait,
-                                                zNear:        0.001,
-                                                zFar:         100)
-               * frame.camera.viewMatrix(for: .portrait)
+        let PV = frame.camera.projectionMatrix(for: .portrait,
+                                                viewportSize: av.frame.size,
+                                                zNear: 0.001,
+                                                zFar: 100) *
+                 frame.camera.viewMatrix(for: .portrait)
 
         let screen: [CGPoint] = w3D.compactMap { w in
             let clip = PV * simd_float4(w.x, w.y, w.z, 1)
@@ -737,6 +743,19 @@ final class ARScannerViewModel: NSObject, ObservableObject, ARSessionDelegate {
         arView?.snapshot(saveToHDR: false) { [weak self] img in
             Task { @MainActor [weak self] in
                 self?.capturedImage = img
+                
+                // Classify the image using CoreML
+                // Disabled until CargoClassifier.mlmodel is added to the project
+                /*
+                if let image = img {
+                    do {
+                        self?.classificationResult = try await CargoClassifierService.shared.classify(image: image)
+                    } catch {
+                        print("Classification error: \(error.localizedDescription)")
+                        self?.classificationResult = "Classification failed"
+                    }
+                }
+                */
             }
         }
     }

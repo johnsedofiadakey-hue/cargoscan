@@ -39,6 +39,11 @@ struct ScannerView: View {
     @State private var detectionFlash = false
     /// Track previous phase so we can fire haptic exactly once
     @State private var prevPhase: ScanPhase = .warmingUp
+    
+    @State private var shipments: [Shipment] = []
+    @State private var consignees: [Consignee] = []
+    @State private var selectedShipmentId = ""
+    @State private var selectedConsigneeId = ""
 
     var body: some View {
         ZStack {
@@ -49,6 +54,37 @@ struct ScannerView: View {
                 .onTapGesture { loc in
                     vm.receiveCornerTap(loc)
                 }
+                
+            // ── Shipment + Consignee Pickers ──────────────────────────────────
+            VStack {
+                HStack {
+                    Picker("Shipment", selection: $selectedShipmentId) {
+                        Text("Select Shipment").tag("")
+                        ForEach(shipments) { s in
+                            Text(s.code).tag(s.id)
+                        }
+                    }
+                    .pickerStyle(MenuPickerStyle())
+                    .padding(8)
+                    .background(Color(.secondarySystemBackground).opacity(0.8))
+                    .cornerRadius(8)
+                    
+                    Picker("Consignee", selection: $selectedConsigneeId) {
+                        Text("Select Consignee").tag("")
+                        ForEach(consignees) { c in
+                            Text(c.name).tag(c.id)
+                        }
+                    }
+                    .pickerStyle(MenuPickerStyle())
+                    .padding(8)
+                    .background(Color(.secondarySystemBackground).opacity(0.8))
+                    .cornerRadius(8)
+                    .disabled(selectedShipmentId.isEmpty)
+                }
+                .padding()
+                
+                Spacer()
+            }
 
             // ── 2. Screen-centre scan reticle ─────────────────────────────────
             if [ScanPhase.findingFloor, .positioning, .readyToScan]
@@ -126,8 +162,33 @@ struct ScannerView: View {
             withAnimation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true)) {
                 glowPulse = true
             }
+            
+            // Fetch shipments
+            Task {
+                do {
+                    let ships = try await NetworkService.shared.getShipments()
+                    await MainActor.run {
+                        self.shipments = ships
+                    }
+                } catch {
+                    print("Failed to fetch shipments: \(error)")
+                }
+            }
         }
-        .onChange(of: vm.phase) { newPhase in
+        .onChange(of: selectedShipmentId) { _, newShipmentId in
+            guard !newShipmentId.isEmpty else { return }
+            Task {
+                do {
+                    let cons = try await NetworkService.shared.getConsignees(shipmentId: newShipmentId)
+                    await MainActor.run {
+                        self.consignees = cons
+                    }
+                } catch {
+                    print("Failed to fetch consignees: \(error)")
+                }
+            }
+        }
+        .onChange(of: vm.phase) { _, newPhase in
             // Fire haptic + flash exactly once when object is first detected
             if newPhase == .objectDetected && prevPhase != .objectDetected {
                 triggerDetectionFeedback()
@@ -553,24 +614,47 @@ struct ScannerView: View {
         guard let itemId = cargoItemId else { return }
         isSaving = true
         
-        let payload = ScanPayload(
-            cargoItemId: itemId,
-            length: dims.length,
-            width: dims.width,
-            height: dims.height,
-            cbm: dims.cbm,
-            confidence: Float(dims.confidence),
-            scannerDevice: "iPhone LiDAR",
-            photoUrl: nil
-        )
-        
         Task {
             do {
-                let msg = try await NetworkService.shared.saveScanWithRetries(payload: payload)
-                await MainActor.run {
-                    self.isSaving = false
-                    self.saveMessage = msg
-                    self.showSaveAlert = true
+                var photoUrl: String? = nil
+                
+                // 1. Upload photo if available
+                if let image = vm.capturedImage,
+                   let imageData = image.jpegData(compressionQuality: 0.8) {
+                    
+                    let (uploadUrl, publicUrl) = try await NetworkService.shared.getUploadUrl(cargoItemId: itemId, mimeType: "image/jpeg")
+                    
+                    try await NetworkService.shared.uploadPhoto(url: uploadUrl, data: imageData, mimeType: "image/jpeg")
+                    
+                    photoUrl = publicUrl
+                }
+                
+                // 2. Save scan
+                let payload = ScanPayload(
+                    cargoItemId: itemId,
+                    length: dims.length,
+                    width: dims.width,
+                    height: dims.height,
+                    cbm: dims.cbm,
+                    confidence: Float(dims.confidence),
+                    scannerDevice: "iPhone LiDAR",
+                    photoUrl: photoUrl
+                )
+                
+                do {
+                    let msg = try await NetworkService.shared.saveScan(payload: payload)
+                    await MainActor.run {
+                        self.isSaving = false
+                        self.saveMessage = msg
+                        self.showSaveAlert = true
+                    }
+                } catch {
+                    OfflineManager.shared.queueScan(payload: payload)
+                    await MainActor.run {
+                        self.isSaving = false
+                        self.saveMessage = "Offline. Scan saved to queue."
+                        self.showSaveAlert = true
+                    }
                 }
             } catch let err as NetworkError {
                 await MainActor.run {

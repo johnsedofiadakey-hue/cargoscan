@@ -1,10 +1,3 @@
-//
-//  NetworkService.swift
-//  Cargoscan
-//
-//  Created for CargoScan iOS Scanner
-//
-
 import Foundation
 import UIKit
 
@@ -30,12 +23,113 @@ class NetworkService {
     static let shared = NetworkService()
     private let baseURL = "https://cargoscan.onrender.com/api"
     
-    // In a real app we would grab the auth token from user defaults / keychain
-    // For this module test we'll assume the API accepts it or we mock the auth header.
-    // If auth is strictly required, the user must login on iOS first.
-    // Let's pass the token if available.
     var currentToken: String? {
-        UserDefaults.standard.string(forKey: "cs_token")
+        KeychainHelper.shared.getToken(key: "cs_token")
+    }
+    
+    var refreshToken: String? {
+        KeychainHelper.shared.getToken(key: "cs_refresh_token")
+    }
+    
+    func refreshAccessToken() async throws -> String {
+        guard let rToken = refreshToken else {
+            throw NetworkError.serverError("No refresh token available")
+        }
+        
+        guard let url = URL(string: "\(baseURL)/auth/refresh") else {
+            throw NetworkError.invalidURL
+        }
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        
+        let body = ["refreshToken": rToken]
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        
+        let (data, response) = try await URLSession.shared.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse, (200...299).contains(httpResponse.statusCode) else {
+            throw NetworkError.serverError("Failed to refresh token")
+        }
+        
+        if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let newToken = json["accessToken"] as? String {
+            KeychainHelper.shared.saveToken(newToken, key: "cs_token")
+            return newToken
+        }
+        
+        throw NetworkError.decodingError
+    }
+    
+    func login(email: String, password: String) async throws -> Bool {
+        guard let url = URL(string: "\(baseURL)/auth/login") else {
+            throw NetworkError.invalidURL
+        }
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        
+        let body = ["email": email, "password": password]
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        
+        let (data, response) = try await URLSession.shared.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw NetworkError.serverError("Invalid response type")
+        }
+        
+        if !(200...299).contains(httpResponse.statusCode) {
+            if let errorJson = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let msg = errorJson["error"] as? String {
+                throw NetworkError.serverError(msg)
+            }
+            throw NetworkError.serverError("Login failed")
+        }
+        
+        if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let token = json["token"] as? String {
+            KeychainHelper.shared.saveToken(token, key: "cs_token")
+            if let rToken = json["refreshToken"] as? String {
+                KeychainHelper.shared.saveToken(rToken, key: "cs_refresh_token")
+            }
+            return true
+        }
+        
+        throw NetworkError.decodingError
+    }
+    
+    func performRequest(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+        var req = request
+        if let token = currentToken {
+            req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+        
+        let (data, response) = try await URLSession.shared.data(for: req)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw NetworkError.serverError("Invalid response type")
+        }
+        
+        if httpResponse.statusCode == 401 {
+            // Try to refresh token
+            do {
+                let newToken = try await refreshAccessToken()
+                var retryReq = request
+                retryReq.setValue("Bearer \(newToken)", forHTTPHeaderField: "Authorization")
+                
+                let (retryData, retryResponse) = try await URLSession.shared.data(for: retryReq)
+                guard let retryHttpResponse = retryResponse as? HTTPURLResponse else {
+                    throw NetworkError.serverError("Invalid response type")
+                }
+                return (retryData, retryHttpResponse)
+            } catch {
+                throw NetworkError.serverError("Session expired")
+            }
+        }
+        
+        return (data, httpResponse)
     }
     
     func saveScan(payload: ScanPayload) async throws -> String {
@@ -47,21 +141,12 @@ class NetworkService {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         
-        if let token = currentToken {
-            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        }
-        
         let encoder = JSONEncoder()
         request.httpBody = try encoder.encode(payload)
         
-        let (data, response) = try await URLSession.shared.data(for: request)
-        
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw NetworkError.serverError("Invalid response type")
-        }
+        let (data, httpResponse) = try await performRequest(request)
         
         if !(200...299).contains(httpResponse.statusCode) {
-            // Try to parse the error message
             if let errorJson = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                let msg = errorJson["error"] as? String {
                 throw NetworkError.serverError(msg)
@@ -69,28 +154,97 @@ class NetworkService {
             throw NetworkError.serverError("Server returned status \(httpResponse.statusCode)")
         }
         
-        // Success
         return "Scan saved successfully"
     }
     
-    func saveScanWithRetries(payload: ScanPayload, maxRetries: Int = 3) async throws -> String {
-        var currentAttempt = 0
-        
-        while currentAttempt < maxRetries {
-            do {
-                return try await saveScan(payload: payload)
-            } catch {
-                currentAttempt += 1
-                if currentAttempt >= maxRetries {
-                    throw error
-                }
-                
-                // Exponential backoff: 1s, 2s, 4s...
-                let delay = UInt64(pow(2.0, Double(currentAttempt - 1))) * 1_000_000_000
-                try await Task.sleep(nanoseconds: delay)
-            }
+    func getUploadUrl(cargoItemId: String, mimeType: String) async throws -> (uploadUrl: String, publicUrl: String) {
+        guard let url = URL(string: "\(baseURL)/scans/\(cargoItemId)/photo") else {
+            throw NetworkError.invalidURL
         }
         
-        throw NetworkError.serverError("Max retries exceeded")
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        
+        let body: [String: String] = ["mimeType": mimeType]
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        
+        let (data, httpResponse) = try await performRequest(request)
+        
+        guard (200...299).contains(httpResponse.statusCode) else {
+            throw NetworkError.serverError("Failed to get upload URL")
+        }
+        
+        if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let uploadUrl = json["uploadUrl"] as? String,
+           let publicUrl = json["publicUrl"] as? String {
+            return (uploadUrl, publicUrl)
+        }
+        
+        throw NetworkError.decodingError
     }
+    
+    func uploadPhoto(url: String, data: Data, mimeType: String) async throws {
+        guard let url = URL(string: url) else {
+            throw NetworkError.invalidURL
+        }
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "PUT"
+        request.setValue(mimeType, forHTTPHeaderField: "Content-Type")
+        request.httpBody = data
+        
+        // Photo upload to S3/Supabase usually doesn't need our backend auth token
+        let (_, response) = try await URLSession.shared.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse, (200...299).contains(httpResponse.statusCode) else {
+            throw NetworkError.serverError("Failed to upload photo")
+        }
+    }
+    
+    func getShipments() async throws -> [Shipment] {
+        guard let url = URL(string: "\(baseURL)/shipments") else {
+            throw NetworkError.invalidURL
+        }
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        
+        let (data, httpResponse) = try await performRequest(request)
+        
+        guard (200...299).contains(httpResponse.statusCode) else {
+            throw NetworkError.serverError("Failed to fetch shipments")
+        }
+        
+        let decoder = JSONDecoder()
+        return try decoder.decode([Shipment].self, from: data)
+    }
+    
+    func getConsignees(shipmentId: String) async throws -> [Consignee] {
+        guard let url = URL(string: "\(baseURL)/consignees?shipmentId=\(shipmentId)") else {
+            throw NetworkError.invalidURL
+        }
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        
+        let (data, httpResponse) = try await performRequest(request)
+        
+        guard (200...299).contains(httpResponse.statusCode) else {
+            throw NetworkError.serverError("Failed to fetch consignees")
+        }
+        
+        let decoder = JSONDecoder()
+        return try decoder.decode([Consignee].self, from: data)
+    }
+}
+
+struct Shipment: Codable, Identifiable {
+    let id: String
+    let code: String
+}
+
+struct Consignee: Codable, Identifiable {
+    let id: String
+    let name: String
 }

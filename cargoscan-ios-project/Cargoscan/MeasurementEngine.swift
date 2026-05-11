@@ -168,7 +168,7 @@ struct RANSACPlaneDetector {
     }
 
     private static func randomTriple(n: Int) -> (Int, Int, Int) {
-        var a = Int.random(in: 0 ..< n)
+        let a = Int.random(in: 0 ..< n)
         var b = Int.random(in: 0 ..< n)
         var c = Int.random(in: 0 ..< n)
         while b == a           { b = Int.random(in: 0 ..< n) }

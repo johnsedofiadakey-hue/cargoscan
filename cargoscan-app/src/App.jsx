@@ -1,4 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback, createContext, useContext } from "react";
+import DevelopersPanel from "./panels/DevelopersPanel";
+import CustomersPanel from "./panels/CustomersPanel";
+import TrackingPage from "./TrackingPage";
 
 const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:3000/api";
 
@@ -1269,6 +1272,8 @@ function OrgApp({ user, org, onLogout }) {
     { id: "disputes", icon: "🛡", label: "Disputes", show: isAdmin || isSup },
     { id: "billing", icon: "💳", label: "Billing", show: isAdmin },
     { id: "settings", icon: "⚙", label: "Settings", show: isAdmin },
+    { id: "developers", icon: "👩‍💻", label: "Developers", show: isAdmin },
+    { id: "customers", icon: "👥", label: "Customers", show: isAdmin },
   ].filter(t => t.show);
 
   const trial = org2.trial;
@@ -1316,6 +1321,12 @@ function OrgApp({ user, org, onLogout }) {
 
         {/* ── SHIPMENTS ── */}
         {tab === "shipments" && <ShipmentsTab org={org2} user={user} />}
+
+        {/* ── DEVELOPERS ── */}
+        {tab === "developers" && <DevelopersPanel />}
+
+        {/* ── CUSTOMERS ── */}
+        {tab === "customers" && <CustomersPanel />}
 
         {/* ── SCAN ── */}
         {tab === "scan" && <ScanTab org={org2} />}
@@ -1447,8 +1458,9 @@ function DashTab({ org, user, onUpgrade }) {
 
 // ─── SHIPMENTS TAB ─────────────────────────────────────────────
 function ShipmentsTab({ org, user }) {
-  const { data: pData } = usePlatform();
+  const { data: pData, addShipment } = usePlatform();
   const [filter, setFilter] = useState("ALL");
+  const [selectedShipment, setSelectedShipment] = useState(null);
   const statuses = ["ALL", "PENDING", "RECEIVING", "IN_TRANSIT", "DELIVERED"];
   const filtered = filter === "ALL" ? pData.shipments : pData.shipments.filter(s => s.status === filter);
 
@@ -1506,7 +1518,7 @@ function ShipmentsTab({ org, user }) {
               <td data-label="Status" style={{ padding: "11px 16px" }}><Chip label={s.status} color={s.color} /></td>
               <td data-label="Actions" style={{ padding: "11px 16px" }}>
                 <div style={{ display: "flex", gap: 6 }}>
-                  <Btn label="View" v="ghost" sz="sm" onClick={() => notify(`Opening ${s.code}...`, "info")} />
+                  <Btn label="View" v="ghost" sz="sm" onClick={() => setSelectedShipment(s)} />
                   <Btn label="Export" v="ghost" sz="sm" onClick={() => notify(`Downloading ${s.code} packing list...`, "ok")} />
                 </div>
               </td>
@@ -1514,6 +1526,12 @@ function ShipmentsTab({ org, user }) {
           ))}</tbody>
         </table>
       </Card>
+
+      {selectedShipment && (
+        <Modal title={`Shipment ${selectedShipment.code}`} onClose={() => setSelectedShipment(null)} width={800}>
+          <CustomersPanel shipmentId={selectedShipment.id} />
+        </Modal>
+      )}
     </div>
   );
 }
@@ -2158,18 +2176,26 @@ function CargoScanInner() {
     }
   }, [signupResult, onLogin]);
 
+  const isTracking = window.location.pathname.startsWith("/track/");
+
   return (
     <>
       <G />
       <Toast />
-      {screen === "login" && <LoginScreen onSuccess={onLogin} onSignup={() => setScreen("signup")} />}
-      {screen === "signup" && <SignupScreen onDone={(created) => { setSignupResult(created); }} onLogin={() => setScreen("login")} />}
-      {screen === "app" && session?.type === "superadmin" && <SuperAdmin onLogout={onLogout} onImpersonate={(org) => {
-        const u = pData.users.find(x => x.org === org.slug && x.role === "ADMIN");
-        if (u) onLogin({ type: "org", user: u, org });
-        else notify("No admin found for this org", "err");
-      }} />}
-      {screen === "app" && session?.type === "org" && <OrgApp user={session.user} org={session.org} onLogout={onLogout} />}
+      {isTracking ? (
+        <TrackingPage />
+      ) : (
+        <>
+          {screen === "login" && <LoginScreen onSuccess={onLogin} onSignup={() => setScreen("signup")} />}
+          {screen === "signup" && <SignupScreen onDone={(created) => { setSignupResult(created); }} onLogin={() => setScreen("login")} />}
+          {screen === "app" && session?.type === "superadmin" && <SuperAdmin onLogout={onLogout} onImpersonate={(org) => {
+            const u = pData.users.find(x => x.org === org.slug && x.role === "ADMIN");
+            if (u) onLogin({ type: "org", user: u, org });
+            else notify("No admin found for this org", "err");
+          }} />}
+          {screen === "app" && session?.type === "org" && <OrgApp user={session.user} org={session.org} onLogout={onLogout} />}
+        </>
+      )}
     </>
   );
 }

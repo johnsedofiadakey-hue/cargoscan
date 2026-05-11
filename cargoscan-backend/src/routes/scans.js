@@ -1,7 +1,13 @@
 const express = require("express");
 const { z } = require("zod");
 const { PrismaClient } = require("@prisma/client");
-const { authenticateToken } = require("../middleware/auth");
+const { authenticateEither } = require("../middleware/either");
+const storage = require("../services/storage");
+const disputes = require("../services/disputes");
+const eventBus = require("../lib/events");
+const scanCertificate = require("../lib/scanCertificate");
+const audit = require("../lib/audit");
+const rateLimiter = require("../middleware/rateLimit");
 
 const router = express.Router();
 const prisma = new PrismaClient();
@@ -18,13 +24,14 @@ const scanSchema = z.object({
 });
 
 // Handle scanner incoming results
-router.post("/", authenticateToken, async (req, res) => {
+router.post("/", authenticateEither, rateLimiter, async (req, res) => {
   try {
     const validatedData = scanSchema.parse(req.body);
     const { cargoItemId, length, width, height, cbm, confidence, scannerDevice, photoUrl } = validatedData;
 
     const cargoItem = await prisma.cargoItem.findFirst({
       where: { id: cargoItemId, shipment: { organizationId: req.org.id } },
+      include: { consignee: true },
     });
 
     if (!cargoItem) return res.status(404).json({ error: "Cargo Item not found" });
@@ -38,7 +45,9 @@ router.post("/", authenticateToken, async (req, res) => {
         confidence: parseFloat(confidence),
         scannerDevice,
         photoUrl,
-        operatorId: req.user.id,
+        operatorId: req.user ? req.user.id : null,
+        apiKeyId: req.apiKey ? req.apiKey.id : null,
+        source: req.apiKey ? "API" : "LIDAR",
         cargoItemId: cargoItem.id,
       },
     });
@@ -54,6 +63,34 @@ router.post("/", authenticateToken, async (req, res) => {
         scanConfidence: parseFloat(confidence),
         status: "SCANNED"
       }
+    });
+
+    // Evaluate disputes
+    await disputes.evaluate(cargoItem.id, parseFloat(cbm), scan.id, req.org.id);
+
+    // Create Scan Certificate
+    const certificate = await scanCertificate.issue({
+      cargoItemId,
+      payload: { length, width, height, cbm, confidence, scannerDevice },
+    });
+
+    // Write Audit Log
+    await audit.log({
+      userId: req.user ? req.user.id : null,
+      orgId: req.org.id,
+      action: "CREATE",
+      target: "SCAN",
+      targetId: scan.id,
+      details: { cargoItemId, cbm },
+    });
+
+    // Emit Event
+    eventBus.emit("scan.created", {
+      orgId: req.org.id,
+      cargoItemId,
+      scanId: scan.id,
+      certificateUrl: `/api/tracking/_verify/${certificate.hash}`,
+      consigneePhone: cargoItem.consignee?.phone,
     });
 
     res.status(201).json(scan);
@@ -81,6 +118,67 @@ router.get("/:cargoItemId", authenticateToken, async (req, res) => {
     console.error(err);
     res.status(500).json({ error: "Internal server error" });
   }
+});
+
+// Request presigned upload URL
+router.post("/:cargoItemId/photo", authenticateToken, async (req, res) => {
+  const { cargoItemId } = req.params;
+  const { mimeType } = req.body;
+
+  try {
+    const cargoItem = await prisma.cargoItem.findFirst({
+      where: { id: cargoItemId, shipment: { organizationId: req.org.id } },
+    });
+
+    if (!cargoItem) return res.status(404).json({ error: "Cargo Item not found" });
+
+    const key = `cargo_${cargoItemId}_${Date.now()}.${mimeType.split("/")[1] || "jpg"}`;
+    const data = await storage.presignUpload({ key, mimeType });
+
+    res.json({
+      uploadUrl: data.uploadUrl,
+      key,
+      publicUrl: data.publicUrl,
+      expiresAt: data.expiresAt,
+    });
+  } catch (err) {
+    console.error("Photo Request Error:", err);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// Update scan with photo URL
+router.patch("/:scanResultId", authenticateToken, async (req, res) => {
+  const { scanResultId } = req.params;
+  const { photoUrl } = req.body;
+
+  try {
+    const scan = await prisma.scanResult.findUnique({
+      where: { id: scanResultId },
+      include: { cargoItem: { include: { shipment: true } } }
+    });
+
+    if (!scan || scan.cargoItem.shipment.organizationId !== req.org.id) {
+      return res.status(404).json({ error: "Scan not found" });
+    }
+
+    const updatedScan = await prisma.scanResult.update({
+      where: { id: scanResultId },
+      data: { photoUrl },
+    });
+
+    res.json(updatedScan);
+  } catch (err) {
+    console.error("Update Scan Error:", err);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// Local upload fallback
+router.put("/upload-local", async (req, res) => {
+  const { key } = req.query;
+  // Placeholder for local file write
+  res.json({ message: "File uploaded successfully (simulated)", key });
 });
 
 module.exports = router;

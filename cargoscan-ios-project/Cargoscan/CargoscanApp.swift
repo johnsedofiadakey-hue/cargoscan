@@ -5,9 +5,15 @@ import RealityKit
 
 @main
 struct CargoScanApp: App {
-    var body: some Scene {
+    @State private var isLoggedIn = KeychainHelper.shared.getToken(key: "cs_token") != nil
+    
+    var body: some SwiftUI.Scene {
         WindowGroup {
-            HomeView()
+            if isLoggedIn {
+                HomeView()
+            } else {
+                LoginView(isLoggedIn: $isLoggedIn)
+            }
         }
     }
 }

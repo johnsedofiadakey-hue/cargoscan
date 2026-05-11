@@ -1,6 +1,7 @@
 const express = require("express");
 const { PrismaClient } = require("@prisma/client");
 const { authenticateToken, requireRole } = require("../middleware/auth");
+const { checkItemsLimit } = require("../middleware/plan");
 
 const router = express.Router();
 const prisma = new PrismaClient();
@@ -21,7 +22,7 @@ router.get("/", authenticateToken, async (req, res) => {
 });
 
 // Create a new cargo item (manual entry or placeholder before scan)
-router.post("/", authenticateToken, async (req, res) => {
+router.post("/", authenticateToken, checkItemsLimit, async (req, res) => {
   try {
     const { shipmentId, length, width, height, isDamaged } = req.body;
     

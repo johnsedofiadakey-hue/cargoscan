@@ -22,6 +22,7 @@ import ARKit
 import Accelerate   // vImage
 import simd
 import UIKit
+import RealityKit
 
 // ─────────────────────────────────────────────────────────────────────────────
 // MARK: - Output type
@@ -321,9 +322,14 @@ struct EdgeDetector {
         for r in 1 ..< dh - 1 {
             for c in 1 ..< dw - 1 {
                 let i = r * dw + c
-                let tl = down[(r-1)*dw+(c-1)], tc = down[(r-1)*dw+c], tr = down[(r-1)*dw+(c+1)]
-                let ml = down[  r  *dw+(c-1)],                         mr = down[  r  *dw+(c+1)]
-                let bl = down[(r+1)*dw+(c-1)], bc = down[(r+1)*dw+c], br = down[(r+1)*dw+(c+1)]
+                let tl = down[(r - 1) * dw + (c - 1)]
+                let tc = down[(r - 1) * dw + c]
+                let tr = down[(r - 1) * dw + (c + 1)]
+                let ml = down[r * dw + (c - 1)]
+                let mr = down[r * dw + (c + 1)]
+                let bl = down[(r + 1) * dw + (c - 1)]
+                let bc = down[(r + 1) * dw + c]
+                let br = down[(r + 1) * dw + (c + 1)]
 
                 gx[i] = (tr + 2*mr + br) - (tl + 2*ml + bl)
                 gy[i] = (bl + 2*bc + br) - (tl + 2*tc + tr)
@@ -478,7 +484,6 @@ struct EdgeDetector {
         // Unproject screen → camera direction
         let intr = frame.camera.intrinsics
         let fx = intr[0][0], fy = intr[1][1]
-        let cx = intr[2][0], cy = intr[2][1]
 
         // Screen → image: camera image is usually landscape, screen portrait
         // Use the camera's viewMatrix to transform properly

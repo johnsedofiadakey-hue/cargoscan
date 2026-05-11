@@ -5,7 +5,6 @@ generator client {
 datasource db {
   provider  = "postgresql"
   url       = env("DATABASE_URL")
-  directUrl = env("DIRECT_URL")
 }
 
 model Organization {
@@ -24,6 +23,9 @@ model Organization {
   subscriptions   Subscription[]
   auditLogs       AuditLog[]
   shipments       Shipment[]
+  consignees      Consignee[]
+  apiKeys         ApiKey[]
+  webhooks        Webhook[]
 }
 
 model User {
@@ -52,6 +54,71 @@ model Warehouse {
   shipments       Shipment[]
 }
 
+model Consignee {
+  id              String            @id @default(uuid())
+  name            String
+  phone           String
+  email           String?
+  whatsappOptIn   Boolean           @default(false)
+  cbmRateOverride Float?
+  notes           String?
+  organizationId  String
+  organization    Organization      @relation(fields: [organizationId], references: [id])
+  shipmentId      String?
+  shipment        Shipment?         @relation(fields: [shipmentId], references: [id])
+  cargoItems      CargoItem[]
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+}
+
+model ApiKey {
+  id              String            @id @default(uuid())
+  name            String
+  prefix          String
+  hashedSecret    String
+  scopes          String
+  organizationId  String
+  organization    Organization      @relation(fields: [organizationId], references: [id])
+  lastUsedAt      DateTime?
+  scanResults     ScanResult[]
+  auditLogs       AuditLog[]
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+}
+
+model Webhook {
+  id              String            @id @default(uuid())
+  name            String
+  url             String
+  eventFilter     String
+  signingSecret   String
+  failureCounter  Int               @default(0)
+  organizationId  String
+  organization    Organization      @relation(fields: [organizationId], references: [id])
+  deliveries      WebhookDelivery[]
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+}
+
+model WebhookDelivery {
+  id              String            @id @default(uuid())
+  webhookId       String
+  webhook         Webhook           @relation(fields: [webhookId], references: [id])
+  status          Int
+  body            String?
+  attemptCount    Int               @default(1)
+  createdAt       DateTime          @default(now())
+}
+
+model ScanCertificate {
+  id              String            @id @default(uuid())
+  hash            String            @unique
+  payload         String
+  cargoItemId     String
+  cargoItem       CargoItem         @relation(fields: [cargoItemId], references: [id])
+  createdAt       DateTime          @default(now())
+}
+
 model Shipment {
   id              String            @id @default(uuid())
   code            String            @unique
@@ -64,6 +131,7 @@ model Shipment {
   organization    Organization      @relation(fields: [organizationId], references: [id])
   warehouse       Warehouse         @relation(fields: [warehouseId], references: [id])
   cargoItems      CargoItem[]
+  consignees      Consignee[]
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @updatedAt
 }
@@ -79,8 +147,12 @@ model CargoItem {
   isDamaged       Boolean           @default(false)
   shipmentId      String
   shipment        Shipment          @relation(fields: [shipmentId], references: [id])
+  consigneeId     String?
+  consignee       Consignee?        @relation(fields: [consigneeId], references: [id])
+  description     String?
   scanResults     ScanResult[]
   disputes        Dispute[]
+  scanCertificates ScanCertificate[]
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @updatedAt
 }
@@ -98,6 +170,9 @@ model ScanResult {
   operatorId      String
   cargoItem       CargoItem         @relation(fields: [cargoItemId], references: [id])
   operator        User              @relation(fields: [operatorId], references: [id])
+  source          String            @default("LIDAR")
+  apiKeyId        String?
+  apiKey          ApiKey?           @relation(fields: [apiKeyId], references: [id])
   createdAt       DateTime          @default(now())
 }
 
@@ -105,7 +180,7 @@ model Dispute {
   id              String            @id @default(uuid())
   cargoItemId     String
   resolverId      String?
-  status          String            @default("OPEN") // OPEN, RESOLVED, REJECTED
+  status          String            @default("OPEN") // OPEN, RESOLVED, REJECTED, REVIEW
   originCbm       Float
   destinationCbm  Float
   notes           String?
@@ -134,6 +209,8 @@ model AuditLog {
   details         String?
   userId          String?
   organization    Organization      @relation(fields: [organizationId], references: [id])
+  apiKeyId        String?
+  apiKey          ApiKey?           @relation(fields: [apiKeyId], references: [id])
   createdAt       DateTime          @default(now())
 }
 
@@ -145,6 +222,9 @@ model NotificationLog {
   status          String
   userId          String?
   user            User?             @relation(fields: [userId], references: [id])
+  providerRef     String?
+  errorMessage    String?
+  payload         String?
   createdAt       DateTime          @default(now())
 }
 

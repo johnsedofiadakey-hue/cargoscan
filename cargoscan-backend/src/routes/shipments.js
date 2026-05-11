@@ -1,6 +1,7 @@
 const express = require("express");
 const { PrismaClient } = require("@prisma/client");
 const { authenticateToken, requireRole } = require("../middleware/auth");
+const { checkShipmentLimit } = require("../middleware/plan");
 
 const router = express.Router();
 const prisma = new PrismaClient();
@@ -28,7 +29,7 @@ router.get("/", authenticateToken, async (req, res) => {
   }
 });
 
-router.post("/", authenticateToken, requireRole(["ADMIN", "SUPERVISOR"]), async (req, res) => {
+router.post("/", authenticateToken, requireRole(["ADMIN", "SUPERVISOR"]), checkShipmentLimit, async (req, res) => {
   try {
     const { code, from, to, cbmCapacity, warehouseId } = req.body;
     

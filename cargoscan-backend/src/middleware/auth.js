@@ -12,6 +12,12 @@ const authenticateToken = async (req, res, next) => {
 
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    if (decoded.role === "SUPER_ADMIN") {
+      req.user = { role: "SUPER_ADMIN" };
+      req.org = null;
+      return next();
+    }
+
     const user = await prisma.user.findUnique({
       where: { id: decoded.id },
       include: { organization: true },
