@@ -1,6 +1,7 @@
 const express = require("express");
 const { z } = require("zod");
 const { PrismaClient } = require("@prisma/client");
+const { authenticateToken } = require("../middleware/auth");
 const { authenticateEither } = require("../middleware/either");
 const storage = require("../services/storage");
 const disputes = require("../services/disputes");
@@ -8,6 +9,8 @@ const eventBus = require("../lib/events");
 const scanCertificate = require("../lib/scanCertificate");
 const audit = require("../lib/audit");
 const rateLimiter = require("../middleware/rateLimit");
+const fs = require("fs");
+const path = require("path");
 
 const router = express.Router();
 const prisma = new PrismaClient();
@@ -36,6 +39,7 @@ router.post("/", authenticateEither, rateLimiter, async (req, res) => {
 
     if (!cargoItem) return res.status(404).json({ error: "Cargo Item not found" });
 
+    const scanSource = req.body.source || (req.apiKey ? "API" : "LIDAR");
     const scan = await prisma.scanResult.create({
       data: {
         length: parseFloat(length),
@@ -47,7 +51,7 @@ router.post("/", authenticateEither, rateLimiter, async (req, res) => {
         photoUrl,
         operatorId: req.user ? req.user.id : null,
         apiKeyId: req.apiKey ? req.apiKey.id : null,
-        source: req.apiKey ? "API" : "LIDAR",
+        source: scanSource,
         cargoItemId: cargoItem.id,
       },
     });
@@ -93,7 +97,7 @@ router.post("/", authenticateEither, rateLimiter, async (req, res) => {
       consigneePhone: cargoItem.consignee?.phone,
     });
 
-    res.status(201).json(scan);
+    res.status(201).json({ ...scan, certificate });
   } catch (err) {
     if (err instanceof z.ZodError) {
       return res.status(400).json({ error: "Validation Error", details: err.errors });
@@ -174,11 +178,25 @@ router.patch("/:scanResultId", authenticateToken, async (req, res) => {
   }
 });
 
-// Local upload fallback
-router.put("/upload-local", async (req, res) => {
+// Local upload fallback — real disk write
+router.put("/upload-local", express.raw({ type: "*/*" }), async (req, res) => {
   const { key } = req.query;
-  // Placeholder for local file write
-  res.json({ message: "File uploaded successfully (simulated)", key });
+  if (!key) return res.status(400).json({ error: "Missing key query param" });
+
+  const uploadsDir = path.join(__dirname, "../../uploads");
+  if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
+
+  const safeName = path.basename(key); // prevent path traversal
+  const filePath = path.join(uploadsDir, safeName);
+  fs.writeFileSync(filePath, req.body);
+  res.json({ message: "File uploaded successfully", key: safeName });
+});
+
+// Serve local uploads
+router.get("/uploads/:key", (req, res) => {
+  const filePath = path.join(__dirname, "../../uploads", path.basename(req.params.key));
+  if (!fs.existsSync(filePath)) return res.status(404).json({ error: "File not found" });
+  res.sendFile(filePath);
 });
 
 module.exports = router;

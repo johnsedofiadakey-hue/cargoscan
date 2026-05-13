@@ -101,6 +101,7 @@ router.post("/signup", async (req, res) => {
 router.post("/login", async (req, res) => {
   try {
     const { email, password } = req.body;
+    console.log("Login attempt with email:", email);
 
     // Handle Super Admin platform login
     const adminEmail = process.env.SUPER_ADMIN_EMAIL || "admin@cargoscan.app";
@@ -197,9 +198,10 @@ router.post("/refresh", async (req, res) => {
       expiresIn: "15m",
     });
 
-    // Rotate refresh token
-    const newRefreshToken = crypto.randomBytes(40).toString("hex");
-    const newHashedRefreshToken = await bcrypt.hash(newRefreshToken, 10);
+    // Rotate refresh token — prefix with userId. so the parser can extract it next call
+    const newRandomSecret = crypto.randomBytes(40).toString("hex");
+    const newRefreshToken = `${userId}.${newRandomSecret}`;
+    const newHashedRefreshToken = await bcrypt.hash(newRandomSecret, 10);
     await redis.setex(key, 30 * 24 * 60 * 60, newHashedRefreshToken);
 
     res.json({
@@ -208,6 +210,33 @@ router.post("/refresh", async (req, res) => {
     });
   } catch (err) {
     console.error("Refresh Error:", err);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// Session rehydration
+router.get("/me", authenticateToken, async (req, res) => {
+  try {
+    if (req.user.role === "SUPER_ADMIN") {
+      return res.json({ user: { name: "Platform Admin", role: "SUPER_ADMIN" }, organization: null });
+    }
+    return res.json({
+      user: {
+        id: req.user.id,
+        name: req.user.name,
+        email: req.user.email,
+        role: req.user.role,
+      },
+      organization: {
+        id: req.org.id,
+        name: req.org.name,
+        slug: req.org.slug,
+        plan: req.org.plan,
+        planExpiresAt: req.org.planExpiresAt,
+      },
+    });
+  } catch (err) {
+    console.error("GET /me error:", err);
     res.status(500).json({ error: "Internal Server Error" });
   }
 });

@@ -92,6 +92,7 @@ model Webhook {
   url             String
   eventFilter     String
   signingSecret   String
+  active          Boolean           @default(true)
   failureCounter  Int               @default(0)
   organizationId  String
   organization    Organization      @relation(fields: [organizationId], references: [id])
@@ -104,7 +105,10 @@ model WebhookDelivery {
   id              String            @id @default(uuid())
   webhookId       String
   webhook         Webhook           @relation(fields: [webhookId], references: [id])
-  status          Int
+  event           String?
+  status          String
+  responseStatus  Int?
+  responseBody    String?
   body            String?
   attemptCount    Int               @default(1)
   createdAt       DateTime          @default(now())
@@ -167,9 +171,9 @@ model ScanResult {
   scannerDevice   String
   photoUrl        String?
   cargoItemId     String
-  operatorId      String
+  operatorId      String?
   cargoItem       CargoItem         @relation(fields: [cargoItemId], references: [id])
-  operator        User              @relation(fields: [operatorId], references: [id])
+  operator        User?             @relation(fields: [operatorId], references: [id])
   source          String            @default("LIDAR")
   apiKeyId        String?
   apiKey          ApiKey?           @relation(fields: [apiKeyId], references: [id])
@@ -206,6 +210,8 @@ model AuditLog {
   id              String            @id @default(uuid())
   organizationId  String
   action          String
+  target          String?
+  targetId        String?
   details         String?
   userId          String?
   organization    Organization      @relation(fields: [organizationId], references: [id])

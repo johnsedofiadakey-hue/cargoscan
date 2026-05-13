@@ -1,35 +1,224 @@
+const { PrismaClient } = require("@prisma/client");
 const eventBus = require("../lib/events");
 
-const templates = {
-  welcome: (vars) => `Welcome to CargoScan, ${vars.name}!`,
-  scan_created: (vars) => `Your cargo scan is ready! View it here: ${vars.url}`,
-  trial_ending: (vars) => `Your trial is ending in ${vars.days} days. Upgrade now!`,
-  payment_failed: (vars) => `Payment failed for your invoice. Please check your billing details.`,
-  team_invite: (vars) => `You have been invited to join ${vars.orgName}. Login with your email.`,
+const prisma = new PrismaClient();
+
+// Template parameter builders for Meta Cloud API
+const TEMPLATE_PARAMS = {
+  cargo_received: (v) => [
+    { type: "text", text: v.customerName || "Customer" },
+    { type: "text", text: v.trackingCode || "N/A" },
+    { type: "text", text: v.dimensions || "N/A" },
+    { type: "text", text: String(v.cbm ?? "N/A") },
+    { type: "text", text: String(v.cost ?? "N/A") },
+  ],
+  shipment_departed: (v) => [
+    { type: "text", text: v.customerName || "Customer" },
+    { type: "text", text: v.shipmentCode || "N/A" },
+    { type: "text", text: v.from || "Origin" },
+    { type: "text", text: v.to || "Destination" },
+    { type: "text", text: String(v.estimatedDays || "N/A") },
+  ],
+  cargo_arrived: (v) => [
+    { type: "text", text: v.customerName || "Customer" },
+    { type: "text", text: v.trackingCode || "N/A" },
+    { type: "text", text: v.port || "Port" },
+    { type: "text", text: v.expectedClearance || "TBD" },
+  ],
+  dispute_opened: (v) => [
+    { type: "text", text: v.customerName || "Customer" },
+    { type: "text", text: v.trackingCode || "N/A" },
+  ],
+  dispute_review_pending: (v) => [
+    { type: "text", text: v.customerName || "Customer" },
+    { type: "text", text: v.trackingCode || "N/A" },
+  ],
 };
 
-/**
- * Sends a WhatsApp message using a template.
- * @param {string} to - Recipient phone number
- * @param {string} template - Template name
- * @param {object} vars - Variables to fill the template
- */
-async function send(to, template, vars) {
-  const templateFn = templates[template];
-  const message = templateFn ? templateFn(vars) : `Message with template ${template}`;
-  
-  console.log(`[WhatsApp] Sending to ${to}: "${message}"`);
-  
-  // In production, integrate with Twilio or Meta WhatsApp API here.
-  return { success: true, messageId: `wa_${Math.random().toString(36).substr(2, 9)}` };
+async function sendViaMeta(to, templateName, vars) {
+  const phoneId = process.env.WHATSAPP_PHONE_ID;
+  const token = process.env.WHATSAPP_TOKEN;
+  if (!phoneId || !token) throw new Error("Meta WhatsApp env vars not configured");
+
+  // Strip leading + if present (Meta expects no + prefix)
+  const normalizedTo = to.replace(/^\+/, "");
+
+  const paramFn = TEMPLATE_PARAMS[templateName];
+  const parameters = paramFn ? paramFn(vars) : [];
+
+  const body = {
+    messaging_product: "whatsapp",
+    to: normalizedTo,
+    type: "template",
+    template: {
+      name: templateName,
+      language: { code: "en_US" },
+      components: [{ type: "body", parameters }],
+    },
+  };
+
+  const resp = await fetch(`https://graph.facebook.com/v20.0/${phoneId}/messages`, {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+
+  const data = await resp.json();
+  if (!resp.ok) {
+    throw new Error(`Meta API error: ${JSON.stringify(data)}`);
+  }
+  return data?.messages?.[0]?.id || "meta_sent";
 }
 
-// Subscribe to events
+async function sendViaTwilio(to, templateName, vars) {
+  const sid = process.env.TWILIO_ACCOUNT_SID;
+  const token = process.env.TWILIO_AUTH_TOKEN;
+  const from = process.env.TWILIO_WHATSAPP_FROM || "whatsapp:+14155238886";
+  if (!sid || !token) throw new Error("Twilio env vars not configured");
+
+  const paramFn = TEMPLATE_PARAMS[templateName];
+  const params = paramFn ? paramFn(vars).map(p => p.text).join(", ") : templateName;
+  const body = `[${templateName}] ${params}`;
+  const normalizedTo = to.startsWith("whatsapp:") ? to : `whatsapp:${to}`;
+
+  const formData = new URLSearchParams({
+    From: from,
+    To: normalizedTo,
+    Body: body,
+  });
+
+  const credentials = Buffer.from(`${sid}:${token}`).toString("base64");
+  const resp = await fetch(
+    `https://api.twilio.com/2010-04-01/Accounts/${sid}/Messages.json`,
+    {
+      method: "POST",
+      headers: {
+        "Authorization": `Basic ${credentials}`,
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: formData.toString(),
+    }
+  );
+
+  const data = await resp.json();
+  if (!resp.ok) {
+    throw new Error(`Twilio API error: ${JSON.stringify(data)}`);
+  }
+  return data.sid;
+}
+
+async function send(to, templateName, vars) {
+  const provider = process.env.WHATSAPP_PROVIDER || "meta";
+  let status = "SENT";
+  let providerRef = null;
+  let errorMessage = null;
+
+  const hasMetaCreds = process.env.WHATSAPP_TOKEN && process.env.WHATSAPP_PHONE_ID;
+  const hasTwilioCreds = process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN;
+
+  if (!hasMetaCreds && !hasTwilioCreds) {
+    console.log(`[WhatsApp] SKIPPED — no provider credentials configured. Template: ${templateName}, to: ${to}`);
+    status = "SKIPPED";
+  } else {
+    try {
+      if (provider === "twilio" || (!hasMetaCreds && hasTwilioCreds)) {
+        providerRef = await sendViaTwilio(to, templateName, vars);
+      } else {
+        providerRef = await sendViaMeta(to, templateName, vars);
+      }
+      console.log(`[WhatsApp] Sent ${templateName} to ${to} via ${provider} (ref: ${providerRef})`);
+    } catch (err) {
+      status = "FAILED";
+      errorMessage = err.message;
+      console.error(`[WhatsApp] Failed to send ${templateName} to ${to}:`, err.message);
+    }
+  }
+
+  // Always write to NotificationLog
+  try {
+    await prisma.notificationLog.create({
+      data: {
+        type: "WHATSAPP",
+        recipient: to,
+        template: templateName,
+        status,
+        providerRef,
+        errorMessage,
+        payload: JSON.stringify(vars),
+      },
+    });
+  } catch (logErr) {
+    console.error("[WhatsApp] Failed to write NotificationLog:", logErr.message);
+  }
+
+  return { status, providerRef };
+}
+
+// Event listeners
 eventBus.on("scan.created", async (data) => {
-  console.log("[WhatsApp] Reacting to scan.created");
-  if (data.consigneePhone) {
-    await send(data.consigneePhone, "scan_created", { url: data.certificateUrl });
+  if (!data.consigneePhone) return;
+  try {
+    await send(data.consigneePhone, "cargo_received", {
+      customerName: data.consigneeName,
+      trackingCode: data.trackingCode || data.certificateUrl,
+      dimensions: data.dimensions,
+      cbm: data.cbm,
+      cost: data.cost,
+    });
+  } catch (err) {
+    console.error("[WhatsApp] scan.created handler error:", err.message);
   }
 });
+
+eventBus.on("shipment.in_transit", async (data) => {
+  if (!data.consigneePhones?.length) return;
+  for (const phone of data.consigneePhones) {
+    try {
+      await send(phone, "shipment_departed", {
+        customerName: data.consigneeName,
+        shipmentCode: data.shipmentCode,
+        from: data.from,
+        to: data.to,
+        estimatedDays: data.estimatedDays,
+      });
+    } catch (err) {
+      console.error("[WhatsApp] shipment.in_transit handler error:", err.message);
+    }
+  }
+});
+
+eventBus.on("shipment.arrived", async (data) => {
+  if (!data.consigneePhones?.length) return;
+  for (const phone of data.consigneePhones) {
+    try {
+      await send(phone, "cargo_arrived", {
+        customerName: data.consigneeName,
+        trackingCode: data.shipmentCode,
+        port: data.to,
+        expectedClearance: data.expectedClearance,
+      });
+    } catch (err) {
+      console.error("[WhatsApp] shipment.arrived handler error:", err.message);
+    }
+  }
+});
+
+eventBus.on("dispute.opened", async (data) => {
+  if (!data.consigneePhone) return;
+  try {
+    const templateName = data.status === "REVIEW" ? "dispute_review_pending" : "dispute_opened";
+    await send(data.consigneePhone, templateName, {
+      customerName: data.consigneeName,
+      trackingCode: data.trackingCode,
+    });
+  } catch (err) {
+    console.error("[WhatsApp] dispute.opened handler error:", err.message);
+  }
+});
+
+console.log("[WhatsApp] Service loaded — event listeners registered");
 
 module.exports = { send };

@@ -4,7 +4,8 @@ const { PrismaClient } = require("@prisma/client");
 const bcrypt = require("bcrypt");
 const crypto = require("crypto");
 const { authenticateToken, requireRole } = require("../middleware/auth");
-const { checkUsersLimit } = require("../middleware/plan");
+const { checkPlanExpiration, checkUsersLimit } = require("../middleware/plan");
+const { sendTeamInvite } = require("../services/email");
 
 const prisma = new PrismaClient();
 
@@ -30,7 +31,7 @@ router.get("/", authenticateToken, requireRole(["ADMIN"]), async (req, res) => {
 });
 
 // Create user (Team member)
-router.post("/", authenticateToken, requireRole(["ADMIN"]), checkUsersLimit, async (req, res) => {
+router.post("/", authenticateToken, requireRole(["ADMIN"]), checkPlanExpiration, checkUsersLimit, async (req, res) => {
   const { email, name, role } = req.body;
 
   if (!email || !name || !role) {
@@ -58,12 +59,18 @@ router.post("/", authenticateToken, requireRole(["ADMIN"]), checkUsersLimit, asy
       }
     });
 
+    // Send invite email non-blocking
+    const loginUrl = process.env.FRONTEND_URL || "https://app.cargoscan.app";
+    sendTeamInvite(email, name, loginUrl, tempPassword).catch(e =>
+      console.error("[Users] Failed to send team invite email:", e.message)
+    );
+
     res.status(201).json({
       id: user.id,
       email: user.email,
       name: user.name,
       role: user.role,
-      tempPassword: tempPassword, // Return ONCE
+      tempPassword, // Return ONCE
     });
   } catch (err) {
     console.error("Create User Error:", err);

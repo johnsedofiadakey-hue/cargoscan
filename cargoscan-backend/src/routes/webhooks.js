@@ -22,11 +22,14 @@ router.get("/", authenticateToken, requireRole(["ADMIN"]), async (req, res) => {
 
 // Create webhook
 router.post("/", authenticateToken, requireRole(["ADMIN"]), checkWebhookLimit, async (req, res) => {
-  const { name, url, eventFilter } = req.body;
+  // Accept both `events` (new) and `eventFilter` (legacy)
+  const { name, url } = req.body;
+  const rawEvents = req.body.events || req.body.eventFilter;
 
-  if (!name || !url || !eventFilter) {
-    return res.status(400).json({ error: "Missing required fields" });
+  if (!name || !url || !rawEvents) {
+    return res.status(400).json({ error: "Missing required fields: name, url, events" });
   }
+  const eventFilter = Array.isArray(rawEvents) ? rawEvents.join(",") : rawEvents;
 
   try {
     const signingSecret = crypto.randomBytes(32).toString("hex");
@@ -35,7 +38,7 @@ router.post("/", authenticateToken, requireRole(["ADMIN"]), checkWebhookLimit, a
       data: {
         name,
         url,
-        eventFilter: Array.isArray(eventFilter) ? eventFilter.join(",") : eventFilter,
+        eventFilter,
         signingSecret,
         organizationId: req.org.id,
       }

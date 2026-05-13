@@ -59,6 +59,8 @@ const authenticateApiKey = async (req, res, next) => {
 
 const requireScope = (scope) => {
   return (req, res, next) => {
+    // JWT-authenticated users bypass scope checks (role controls access instead)
+    if (req.user && !req.apiKey) return next();
     if (!req.scopes || !req.scopes.includes(scope)) {
       return res.status(403).json({ error: `Missing required scope: ${scope}` });
     }

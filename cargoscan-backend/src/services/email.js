@@ -70,15 +70,23 @@ const sendWelcomeEmail = async (to, name) => {
 };
 
 /**
- * Sends a team invitation email.
+ * Sends a team invitation email with a temporary password.
  */
-const sendTeamInvite = async (to, name, inviteUrl) => {
+const sendTeamInvite = async (to, name, loginUrl, tempPassword) => {
   try {
     const templatePath = path.join(__dirname, "../templates/team_invite.html");
     let html = fs.readFileSync(templatePath, "utf8");
-    html = html.replace("{{name}}", name);
-    html = html.replace("{{inviteUrl}}", inviteUrl);
-    
+    html = html.replace(/{{name}}/g, name);
+    html = html.replace(/{{inviteUrl}}/g, loginUrl);
+    html = html.replace(/{{loginUrl}}/g, loginUrl);
+    if (tempPassword) {
+      html = html.replace(/{{tempPassword}}/g, tempPassword);
+      // Inject password block if template doesn't have the placeholder
+      if (!html.includes(tempPassword)) {
+        html = html.replace("</p>\n    <p>If you did", `</p>\n    <p>Your temporary password is: <strong>${tempPassword}</strong></p>\n    <p>If you did`);
+      }
+    }
+
     await send({ to, subject: "You've been invited to join CargoScan!", html });
     return { success: true };
   } catch (err) {

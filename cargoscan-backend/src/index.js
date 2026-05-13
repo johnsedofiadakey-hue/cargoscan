@@ -6,6 +6,7 @@ const morgan = require("morgan");
 const rateLimit = require("express-rate-limit");
 const { PrismaClient } = require("@prisma/client");
 const { startScheduler } = require("./services/scheduler");
+const apiKeyRateLimiter = require("./middleware/rateLimit");
 const crypto = require("crypto");
 
 const app = express();
@@ -56,6 +57,9 @@ app.post("/api/billing/webhook", express.raw({ type: "application/json" }), webh
 
 app.use(express.json());
 
+// Per-API-key rate limiter — applies globally to all authenticated routes
+app.use(apiKeyRateLimiter);
+
 // Routes
 app.use("/api/auth", require("./routes/auth"));
 app.use("/api/items", require("./routes/items"));
@@ -69,6 +73,10 @@ app.use("/api/consignees", require("./routes/consignees"));
 app.use("/api/tracking", require("./routes/tracking"));
 app.use("/api/billing", billingRouter);
 app.use("/api/users", require("./routes/users"));
+
+// Load event-driven services — must be required AFTER routes so the event bus exists
+require("./services/whatsapp");
+require("./services/webhookDispatcher");
 
 // Healthcheck
 app.get("/api/health", async (req, res) => {
@@ -89,9 +97,8 @@ app.get("/api/health", async (req, res) => {
   try {
     // Check Redis
     const redis = require("./services/redis");
-    await redis.set("health_check_ping", "ok");
-    const val = await redis.get("health_check_ping");
-    if (val === "ok") {
+    const pong = await redis.ping ? await redis.ping() : await redis.set("_hc", "1").then(() => "PONG");
+    if (pong === "PONG" || pong === "OK" || pong) {
       checks.redis.status = "ok";
     } else {
       checks.redis.status = "down";

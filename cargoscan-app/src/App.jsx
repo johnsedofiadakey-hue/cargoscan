@@ -198,6 +198,8 @@ const INITIAL_PLATFORM = {
 
   orgs: {},
   users: [],
+  shipments: [],
+  disputes: [],
 
   flags: {
     whatsapp_enabled: { on: true, label: "WhatsApp Notifications", desc: "Send automated messages on cargo events" },
@@ -522,7 +524,7 @@ function LoginScreen({ onSuccess, onSignup }) {
   }, [email, pass, onSuccess]);
 
   return (
-    <div style={{ minHeight: "100vh", minHeight: "100dvh", display: "flex", flexDirection: "column" }}>
+    <div style={{ minHeight: "100dvh", display: "flex", flexDirection: "column" }}>
       {/* LEFT — brand panel */}
       <div style={{
         display: "none"
@@ -726,7 +728,7 @@ function SignupScreen({ onDone, onLogin }) {
   );
 
   return (
-    <div style={{ minHeight: "100vh", minHeight: "100dvh", display: "flex", flexDirection: "column", background: C.bg }}>
+    <div style={{ minHeight: "100dvh", display: "flex", flexDirection: "column", background: C.bg }}>
       {/* Steps sidebar - hidden on mobile */}
       <div style={{ display: "none" }}>
         <Logo sz={20} />
@@ -1377,7 +1379,7 @@ function DashTab({ org, user, onUpgrade }) {
   const { data: pData, addShipment } = usePlatform();
   const orgShipments = pData.shipments.filter(s => s.org === org.slug);
   const activeShips = orgShipments.filter(s => s.status !== "DELIVERED").length;
-  const totalItems = org.usage.items || 0;
+  const totalItems = org.usage?.items || 0;
   const totalCBM = orgShipments.reduce((a, s) => a + (s.cbm || 0), 0);
   return (
     <div className="afu">
@@ -1402,9 +1404,9 @@ function DashTab({ org, user, onUpgrade }) {
             <Btn label="Upgrade for Unlimited →" sz="sm" onClick={onUpgrade} />
           </div>
           <div className="grid-mobile-1" style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
-            <Bar label="Shipments/month" used={org.usage.ships} limit={org.limits.ships} />
-            <Bar label="Items scanned" used={org.usage.items} limit={org.limits.items} />
-            <Bar label="Team members" used={org.usage.users} limit={org.limits.users} />
+            <Bar label="Shipments/month" used={org.usage?.ships || 0} limit={org.limits?.ships || 5} />
+            <Bar label="Items scanned" used={org.usage?.items || 0} limit={org.limits?.items || 50} />
+            <Bar label="Team members" used={org.usage?.users || 1} limit={org.limits?.users || 2} />
           </div>
         </Card>
       )}
