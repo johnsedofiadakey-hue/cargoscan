@@ -12,8 +12,12 @@ const prisma = new PrismaClient();
 // List cargo items for the organization
 router.get("/", authenticateEither, async (req, res) => {
   try {
+    const shipmentId = req.query.shipmentId;
     const items = await prisma.cargoItem.findMany({
-      where: { shipment: { organizationId: req.org.id } },
+      where: {
+        ...(shipmentId ? { shipmentId } : {}),
+        shipment: { organizationId: req.org.id },
+      },
       include: { scanResults: true, shipment: true },
       orderBy: { createdAt: "desc" },
     });
@@ -53,7 +57,7 @@ router.post(
         if (!consignee) return res.status(404).json({ error: "Consignee not found" });
       }
 
-      const cbm = parseFloat(length) * parseFloat(width) * parseFloat(height);
+      const cbm = (parseFloat(length) * parseFloat(width) * parseFloat(height)) / 1000000;
 
       const item = await prisma.cargoItem.create({
         data: {

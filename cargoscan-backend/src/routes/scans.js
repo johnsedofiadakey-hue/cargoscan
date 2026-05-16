@@ -9,6 +9,7 @@ const eventBus = require("../lib/events");
 const scanCertificate = require("../lib/scanCertificate");
 const audit = require("../lib/audit");
 const rateLimiter = require("../middleware/rateLimit");
+const { checkScanQuality } = require("../services/scanQuality");
 const fs = require("fs");
 const path = require("path");
 
@@ -24,6 +25,33 @@ const scanSchema = z.object({
   confidence: z.number().min(0).max(1),
   scannerDevice: z.string().min(1),
   photoUrl: z.string().url().optional().nullable(),
+  qualityStatus: z.enum(["PASS", "REVIEW", "RESCAN"]).optional(),
+  qualityScore: z.number().min(0).max(1).optional(),
+  qualityReason: z.string().optional(),
+  qualityFlags: z.array(z.string()).optional(),
+});
+
+const qualitySchema = z.object({
+  imageBase64: z.string().optional(),
+  imageUrl: z.string().url().optional(),
+  dimensions: z.object({
+    length: z.number().positive().max(2000),
+    width: z.number().positive().max(2000),
+    height: z.number().positive().max(2000),
+    cbm: z.number().nonnegative().max(100),
+    confidence: z.number().min(0).max(1),
+  }),
+  metrics: z.object({
+    distanceMetres: z.number().optional(),
+    pitchDegrees: z.number().optional(),
+    stableFrameCount: z.number().optional(),
+    lidarPointCount: z.number().optional(),
+    edgeAgreement: z.number().optional(),
+    edgeFusion: z.boolean().optional(),
+    deviceModel: z.string().optional(),
+  }).optional().default({}),
+}).refine(data => data.imageBase64 || data.imageUrl, {
+  message: "imageBase64 or imageUrl is required",
 });
 
 // Serve local uploads before dynamic scan routes so /uploads/:key is public in dev.
@@ -33,11 +61,38 @@ router.get("/uploads/:key", (req, res) => {
   res.sendFile(filePath);
 });
 
+router.post("/quality-check", authenticateToken, async (req, res) => {
+  try {
+    const payload = qualitySchema.parse(req.body);
+    const result = await checkScanQuality(payload);
+    res.json(result);
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      return res.status(400).json({ error: "Validation Error", details: err.errors });
+    }
+    console.error("[ScanQuality] Request failed:", err);
+    res.status(500).json({ error: "Failed to check scan quality" });
+  }
+});
+
 // Handle scanner incoming results
 router.post("/", authenticateEither, rateLimiter, async (req, res) => {
   try {
     const validatedData = scanSchema.parse(req.body);
-    const { cargoItemId, length, width, height, cbm, confidence, scannerDevice, photoUrl } = validatedData;
+    const {
+      cargoItemId,
+      length,
+      width,
+      height,
+      cbm,
+      confidence,
+      scannerDevice,
+      photoUrl,
+      qualityStatus,
+      qualityScore,
+      qualityReason,
+      qualityFlags,
+    } = validatedData;
 
     const cargoItem = await prisma.cargoItem.findFirst({
       where: { id: cargoItemId, shipment: { organizationId: req.org.id } },
@@ -59,6 +114,10 @@ router.post("/", authenticateEither, rateLimiter, async (req, res) => {
         operatorId: req.user ? req.user.id : null,
         apiKeyId: req.apiKey ? req.apiKey.id : null,
         source: scanSource,
+        qualityStatus,
+        qualityScore,
+        qualityReason,
+        qualityFlags: qualityFlags ? JSON.stringify(qualityFlags) : undefined,
         cargoItemId: cargoItem.id,
       },
     });

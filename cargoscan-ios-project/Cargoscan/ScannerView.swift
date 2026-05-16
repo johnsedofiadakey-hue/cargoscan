@@ -55,37 +55,6 @@ struct ScannerView: View {
                     vm.receiveCornerTap(loc)
                 }
                 
-            // ── Shipment + Consignee Pickers ──────────────────────────────────
-            VStack {
-                HStack {
-                    Picker("Shipment", selection: $selectedShipmentId) {
-                        Text("Select Shipment").tag("")
-                        ForEach(shipments) { s in
-                            Text(s.code).tag(s.id)
-                        }
-                    }
-                    .pickerStyle(MenuPickerStyle())
-                    .padding(8)
-                    .background(Color(.secondarySystemBackground).opacity(0.8))
-                    .cornerRadius(8)
-                    
-                    Picker("Consignee", selection: $selectedConsigneeId) {
-                        Text("Select Consignee").tag("")
-                        ForEach(consignees) { c in
-                            Text(c.name).tag(c.id)
-                        }
-                    }
-                    .pickerStyle(MenuPickerStyle())
-                    .padding(8)
-                    .background(Color(.secondarySystemBackground).opacity(0.8))
-                    .cornerRadius(8)
-                    .disabled(selectedShipmentId.isEmpty)
-                }
-                .padding()
-                
-                Spacer()
-            }
-
             // ── 2. Screen-centre scan reticle ─────────────────────────────────
             if [ScanPhase.findingFloor, .positioning, .readyToScan]
                 .contains(vm.phase) {
@@ -236,6 +205,8 @@ struct ScannerView: View {
                         .contains(vm.phase) { tiltBadge }
                 }
             }
+
+            qualityCoach
         }
         .padding(.top, 52)
         .padding(.horizontal, 16)
@@ -329,7 +300,7 @@ struct ScannerView: View {
                 }
 
                 // Message
-                Text(vm.guidance.message)
+                Text(vm.phase == .objectDetected ? "Hold still — auto-capturing" : vm.guidance.message)
                     .font(.system(size: 14, weight: .bold))
                     .foregroundColor(.white)
                     .lineLimit(2)
@@ -352,6 +323,32 @@ struct ScannerView: View {
         .padding(.vertical, 10)
         .background(.black.opacity(0.80), in: RoundedRectangle(cornerRadius: 22))
         .frame(maxWidth: 260, alignment: .leading)
+    }
+
+    private var qualityCoach: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Image(systemName: vm.qualityMetrics.isReady ? "checkmark.seal.fill" : "sparkles")
+                    .foregroundColor(vm.qualityMetrics.isReady ? .green : .cyan)
+                Text(vm.qualityMetrics.guidanceText)
+                    .font(.system(size: 13, weight: .black))
+                    .foregroundColor(.white)
+                Spacer()
+                Text("\(vm.qualityMetrics.passedCount)/\(vm.qualityMetrics.totalCount)")
+                    .font(.system(size: 12, weight: .black, design: .monospaced))
+                    .foregroundColor(vm.qualityMetrics.isReady ? .green : .orange)
+            }
+
+            HStack(spacing: 8) {
+                QualityChip(label: "LiDAR", ok: vm.qualityMetrics.lidarOk)
+                QualityChip(label: "Distance", ok: vm.qualityMetrics.distanceOk)
+                QualityChip(label: "Angle", ok: vm.qualityMetrics.tiltOk)
+                QualityChip(label: "Steady", ok: vm.qualityMetrics.motionOk)
+                QualityChip(label: "Cargo", ok: vm.qualityMetrics.objectOk)
+            }
+        }
+        .padding(12)
+        .background(.black.opacity(0.72), in: RoundedRectangle(cornerRadius: 16))
     }
 
     private var distanceBadge: some View {
@@ -465,7 +462,7 @@ struct ScannerView: View {
                             Text("Object detected")
                                 .font(.system(size: 17, weight: .bold))
                                 .foregroundColor(.white)
-                            Text("Tap to confirm measurement")
+                            Text("Hold still. CargoScan will capture automatically.")
                                 .font(.system(size: 12))
                                 .foregroundColor(.white.opacity(0.6))
                         }
@@ -484,9 +481,9 @@ struct ScannerView: View {
                                             in: RoundedRectangle(cornerRadius: 10))
                         }
 
-                        // Confirm — primary action
+                        // Confirm — fallback if operator wants to force capture
                         Button { vm.confirmObject() } label: {
-                            Label("Confirm Object", systemImage: "checkmark.circle.fill")
+                            Label("Capture Now", systemImage: "checkmark.circle.fill")
                                 .font(.system(size: 15, weight: .bold))
                                 .foregroundColor(.black)
                                 .frame(maxWidth: .infinity, minHeight: 44)
@@ -617,6 +614,7 @@ struct ScannerView: View {
         Task {
             do {
                 var photoUrl: String? = nil
+                var quality: ScanQualityResult? = nil
                 
                 // 1. Upload photo if available
                 if let image = vm.capturedImage,
@@ -627,6 +625,16 @@ struct ScannerView: View {
                     try await NetworkService.shared.uploadPhoto(url: uploadUrl, data: imageData, mimeType: "image/jpeg")
                     
                     photoUrl = publicUrl
+
+                    if let qualityImageData = image.jpegData(compressionQuality: 0.55) {
+                        quality = try? await NetworkService.shared.checkScanQuality(
+                            imageBase64: qualityImageData.base64EncodedString(),
+                            dimensions: dims,
+                            distanceMetres: vm.distanceMetres,
+                            pitchDegrees: vm.pitchDegrees,
+                            edgeFusion: vm.edgeFusionActive
+                        )
+                    }
                 }
                 
                 // 2. Save scan
@@ -638,14 +646,22 @@ struct ScannerView: View {
                     cbm: dims.cbm,
                     confidence: Float(dims.confidence),
                     scannerDevice: "iPhone LiDAR",
-                    photoUrl: photoUrl
+                    photoUrl: photoUrl,
+                    qualityStatus: quality?.status,
+                    qualityScore: quality?.score,
+                    qualityReason: quality?.reason,
+                    qualityFlags: quality?.flags
                 )
                 
                 do {
                     let msg = try await NetworkService.shared.saveScan(payload: payload)
                     await MainActor.run {
                         self.isSaving = false
-                        self.saveMessage = msg
+                        if let quality {
+                            self.saveMessage = "\(msg)\nQuality: \(quality.status) \(Int(quality.score * 100))%\n\(quality.guidance)"
+                        } else {
+                            self.saveMessage = msg
+                        }
                         self.showSaveAlert = true
                     }
                 } catch {
@@ -901,6 +917,25 @@ private struct PositioningGate: View {
         .frame(maxWidth: .infinity)
         .padding(.vertical, 10)
         .background(Color.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 10))
+    }
+}
+
+private struct QualityChip: View {
+    let label: String
+    let ok: Bool
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Image(systemName: ok ? "checkmark.circle.fill" : "circle")
+                .font(.system(size: 10, weight: .bold))
+            Text(label)
+                .font(.system(size: 10, weight: .bold))
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+        }
+        .foregroundColor(ok ? .green : .white.opacity(0.55))
+        .frame(maxWidth: .infinity, minHeight: 28)
+        .background((ok ? Color.green : Color.white).opacity(ok ? 0.14 : 0.08), in: Capsule())
     }
 }
 

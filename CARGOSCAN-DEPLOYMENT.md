@@ -54,6 +54,7 @@ You must provide these:
 - `SENDGRID_API_KEY`
 - `WHATSAPP_TOKEN`
 - `WHATSAPP_PHONE_ID`
+- `OPENAI_API_KEY` if you want AI-assisted scan quality checks
 
 For the first deploy, optional provider secrets can be left blank if you only need logged/skipped notifications. The blueprint defaults `STORAGE_PROVIDER=local`, so Supabase is not required for the first smoke test. Set `API_PUBLIC_URL` to the Render API URL, for example:
 

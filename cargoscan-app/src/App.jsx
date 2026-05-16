@@ -264,8 +264,19 @@ function ShipmentsTab({ data, reload, setMessage }) {
         <div className="cards">
           {data.items.map((cargoItem) => (
             <article key={cargoItem.id} className="item-card">
+              {(() => {
+                const latestScan = cargoItem.scanResults?.[0];
+                return latestScan?.qualityStatus ? (
+                  <span className={`quality-pill quality-${latestScan.qualityStatus.toLowerCase()}`}>
+                    {latestScan.qualityStatus} · {Math.round(Number(latestScan.qualityScore || 0) * 100)}%
+                  </span>
+                ) : null;
+              })()}
               <strong>{cargoItem.description || cargoItem.id.slice(0, 8)}</strong>
               <span>{cargoItem.shipment?.code} · {Number(cargoItem.cbm).toFixed(3)} CBM · {cargoItem.status}</span>
+              {cargoItem.scanResults?.[0]?.qualityReason && (
+                <small>{cargoItem.scanResults[0].qualityReason}</small>
+              )}
               <div className="button-row">
                 <button onClick={() => saveManualScan(cargoItem)}>Save manual scan</button>
                 <a href={`/tracking/${cargoItem.id}`} target="_blank" rel="noreferrer">Track item</a>

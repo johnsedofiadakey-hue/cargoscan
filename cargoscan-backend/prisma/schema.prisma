@@ -175,6 +175,10 @@ model ScanResult {
   cargoItem       CargoItem         @relation(fields: [cargoItemId], references: [id])
   operator        User?             @relation(fields: [operatorId], references: [id])
   source          String            @default("LIDAR")
+  qualityStatus   String?
+  qualityScore    Float?
+  qualityReason   String?
+  qualityFlags    String?
   apiKeyId        String?
   apiKey          ApiKey?           @relation(fields: [apiKeyId], references: [id])
   createdAt       DateTime          @default(now())

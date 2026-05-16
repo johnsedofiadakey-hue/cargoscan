@@ -105,6 +105,30 @@ enum GuidanceInstruction: Equatable {
     }
 }
 
+struct ScanQualityMetrics: Equatable {
+    let distanceOk: Bool
+    let tiltOk: Bool
+    let motionOk: Bool
+    let objectOk: Bool
+    let lidarOk: Bool
+
+    var passedCount: Int {
+        [distanceOk, tiltOk, motionOk, objectOk, lidarOk].filter { $0 }.count
+    }
+
+    var totalCount: Int { 5 }
+    var isReady: Bool { passedCount == totalCount }
+
+    var guidanceText: String {
+        if !lidarOk { return "LiDAR warming up" }
+        if !distanceOk { return "Adjust distance" }
+        if !tiltOk { return "Adjust camera angle" }
+        if !motionOk { return "Hold steady" }
+        if !objectOk { return "Center cargo top" }
+        return "Ready to capture"
+    }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // MARK: - ViewModel
 // ─────────────────────────────────────────────────────────────────────────────
@@ -121,6 +145,13 @@ final class ARScannerViewModel: NSObject, ObservableObject, ARSessionDelegate {
     @Published var finalDimensions:  CargoDimensions?   = nil
     @Published var capturedImage:    UIImage?           = nil
     @Published var classificationResult: String?        = nil
+    @Published var qualityMetrics = ScanQualityMetrics(
+        distanceOk: false,
+        tiltOk: false,
+        motionOk: false,
+        objectOk: false,
+        lidarOk: false
+    )
 
     /// Screen-space quadrilateral outline drawn over the detected box
     @Published var overlayCorners:   [CGPoint]          = []
@@ -143,6 +174,7 @@ final class ARScannerViewModel: NSObject, ObservableObject, ARSessionDelegate {
 
     private var lastFrameTime: TimeInterval  = 0
     private let frameInterval: TimeInterval  = 0.12    // ~8 fps processing
+    private var objectStableSince: TimeInterval? = nil
 
     /// Last 6 camera transforms for motion detection
     private var recentPoses: [simd_float4x4] = []
@@ -175,6 +207,10 @@ final class ARScannerViewModel: NSObject, ObservableObject, ARSessionDelegate {
             config.frameSemantics.insert(.smoothedSceneDepth)
         } else if ARWorldTrackingConfiguration.supportsFrameSemantics(.sceneDepth) {
             config.frameSemantics.insert(.sceneDepth)
+        } else {
+            phase = .warmingUp
+            guidance = .findingFloor
+            return
         }
 
         arView.session.run(config, options: [.resetTracking, .removeExistingAnchors])
@@ -201,6 +237,14 @@ final class ARScannerViewModel: NSObject, ObservableObject, ARSessionDelegate {
         distanceMetres  = 0
         objectScreenBB  = nil
         edgeFusionActive = false
+        objectStableSince = nil
+        qualityMetrics = ScanQualityMetrics(
+            distanceOk: false,
+            tiltOk: false,
+            motionOk: false,
+            objectOk: false,
+            lidarOk: false
+        )
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -377,6 +421,9 @@ final class ARScannerViewModel: NSObject, ObservableObject, ARSessionDelegate {
             phase    = .objectDetected
             guidance = .objectDetected
         }
+
+        updateQualityMetrics(frame: frame, instruction: instr)
+        autoCaptureIfStable(frameTimestamp: frame.timestamp)
     }
 
     private func computeInstruction() -> GuidanceInstruction {
@@ -398,6 +445,44 @@ final class ARScannerViewModel: NSObject, ObservableObject, ARSessionDelegate {
         if isMovingTooFast() { return .movingTooFast }
 
         return .capturing
+    }
+
+    private func updateQualityMetrics(frame: ARFrame, instruction: GuidanceInstruction) {
+        let d = distanceMetres
+        let p = pitchDegrees
+        let distanceOk = d >= 0.55 && d <= 3.5
+        let tiltOk = p <= -20 && p >= -68
+        let motionOk = !isMovingTooFast()
+        let objectOk = overlayCorners.count == 4 || phase == .objectDetected || phase == .scanning
+        let lidarOk = frame.smoothedSceneDepth != nil || frame.sceneDepth != nil
+
+        qualityMetrics = ScanQualityMetrics(
+            distanceOk: distanceOk,
+            tiltOk: tiltOk,
+            motionOk: motionOk,
+            objectOk: objectOk,
+            lidarOk: lidarOk
+        )
+
+        if !qualityMetrics.isReady || instruction.isWarning {
+            objectStableSince = nil
+        }
+    }
+
+    private func autoCaptureIfStable(frameTimestamp: TimeInterval) {
+        guard phase == .objectDetected, qualityMetrics.isReady else {
+            objectStableSince = nil
+            return
+        }
+
+        if objectStableSince == nil {
+            objectStableSince = frameTimestamp
+            return
+        }
+
+        if let stableSince = objectStableSince, frameTimestamp - stableSince >= 0.8 {
+            confirmObject()
+        }
     }
 
     private func isMovingTooFast() -> Bool {

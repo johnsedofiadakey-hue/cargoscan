@@ -17,6 +17,19 @@ struct ScanPayload: Codable {
     let confidence: Float
     let scannerDevice: String
     let photoUrl: String?
+    let qualityStatus: String?
+    let qualityScore: Float?
+    let qualityReason: String?
+    let qualityFlags: [String]?
+}
+
+struct ScanQualityResult: Codable {
+    let status: String
+    let score: Float
+    let reason: String
+    let flags: [String]
+    let guidance: String
+    let source: String?
 }
 
 struct CargoItem: Codable, Identifiable {
@@ -172,6 +185,52 @@ class NetworkService {
         }
         
         return "Scan saved successfully"
+    }
+
+    func checkScanQuality(
+        imageBase64: String,
+        dimensions: CargoDimensions,
+        distanceMetres: Float,
+        pitchDegrees: Float,
+        edgeFusion: Bool
+    ) async throws -> ScanQualityResult {
+        guard let url = URL(string: "\(baseURL)/scans/quality-check") else {
+            throw NetworkError.invalidURL
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        let deviceModel = await MainActor.run { UIDevice.current.model }
+
+        let body: [String: Any] = [
+            "imageBase64": imageBase64,
+            "dimensions": [
+                "length": dimensions.length,
+                "width": dimensions.width,
+                "height": dimensions.height,
+                "cbm": dimensions.cbm,
+                "confidence": dimensions.confidence
+            ],
+            "metrics": [
+                "distanceMetres": distanceMetres,
+                "pitchDegrees": pitchDegrees,
+                "stableFrameCount": 10,
+                "edgeFusion": edgeFusion,
+                "edgeAgreement": edgeFusion ? 0.85 : 0.55,
+                "deviceModel": deviceModel
+            ]
+        ]
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (data, httpResponse) = try await performRequest(request)
+
+        guard (200...299).contains(httpResponse.statusCode) else {
+            throw NetworkError.serverError("Failed to check scan quality")
+        }
+
+        return try JSONDecoder().decode(ScanQualityResult.self, from: data)
     }
     
     func getUploadUrl(cargoItemId: String, mimeType: String) async throws -> (uploadUrl: String, publicUrl: String) {
