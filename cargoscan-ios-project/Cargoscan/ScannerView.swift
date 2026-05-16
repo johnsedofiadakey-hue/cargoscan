@@ -1005,6 +1005,10 @@ extension Color {
 // MARK: - Preview
 // ─────────────────────────────────────────────────────────────────────────────
 
-#Preview {
-    ScannerView(cbmRate: 85.0)
+#if DEBUG
+struct ScannerView_Previews: PreviewProvider {
+    static var previews: some View {
+        ScannerView(cbmRate: 85.0)
+    }
 }
+#endif

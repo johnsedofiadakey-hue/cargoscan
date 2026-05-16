@@ -1,5 +1,6 @@
 const { PrismaClient } = require("@prisma/client");
 const eventBus = require("../lib/events");
+const { LIMITS } = require("../lib/planLimits");
 
 const prisma = new PrismaClient();
 
@@ -36,8 +37,8 @@ const TEMPLATE_PARAMS = {
 };
 
 async function sendViaMeta(to, templateName, vars) {
-  const phoneId = process.env.WHATSAPP_PHONE_ID;
-  const token = process.env.WHATSAPP_TOKEN;
+  const phoneId = process.env.WHATSAPP_PHONE_ID || process.env.WHATSAPP_PHONE_NUMBER_ID;
+  const token = process.env.WHATSAPP_TOKEN || process.env.WHATSAPP_API_TOKEN;
   if (!phoneId || !token) throw new Error("Meta WhatsApp env vars not configured");
 
   // Strip leading + if present (Meta expects no + prefix)
@@ -116,10 +117,24 @@ async function send(to, templateName, vars) {
   let providerRef = null;
   let errorMessage = null;
 
-  const hasMetaCreds = process.env.WHATSAPP_TOKEN && process.env.WHATSAPP_PHONE_ID;
+  if (vars?.orgId) {
+    const org = await prisma.organization.findUnique({
+      where: { id: vars.orgId },
+      select: { plan: true },
+    }).catch(() => null);
+    const plan = org?.plan || "TRIAL";
+    if (!LIMITS[plan]?.whatsapp) {
+      status = "SKIPPED";
+      errorMessage = `WhatsApp not enabled for ${plan} plan`;
+    }
+  }
+
+  const hasMetaCreds = (process.env.WHATSAPP_TOKEN || process.env.WHATSAPP_API_TOKEN) && (process.env.WHATSAPP_PHONE_ID || process.env.WHATSAPP_PHONE_NUMBER_ID);
   const hasTwilioCreds = process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN;
 
-  if (!hasMetaCreds && !hasTwilioCreds) {
+  if (status === "SKIPPED") {
+    console.log(`[WhatsApp] SKIPPED — ${errorMessage}. Template: ${templateName}, to: ${to}`);
+  } else if (!hasMetaCreds && !hasTwilioCreds) {
     console.log(`[WhatsApp] SKIPPED — no provider credentials configured. Template: ${templateName}, to: ${to}`);
     status = "SKIPPED";
   } else {
@@ -162,6 +177,7 @@ eventBus.on("scan.created", async (data) => {
   if (!data.consigneePhone) return;
   try {
     await send(data.consigneePhone, "cargo_received", {
+      orgId: data.orgId,
       customerName: data.consigneeName,
       trackingCode: data.trackingCode || data.certificateUrl,
       dimensions: data.dimensions,
@@ -178,6 +194,7 @@ eventBus.on("shipment.in_transit", async (data) => {
   for (const phone of data.consigneePhones) {
     try {
       await send(phone, "shipment_departed", {
+        orgId: data.orgId,
         customerName: data.consigneeName,
         shipmentCode: data.shipmentCode,
         from: data.from,
@@ -195,6 +212,7 @@ eventBus.on("shipment.arrived", async (data) => {
   for (const phone of data.consigneePhones) {
     try {
       await send(phone, "cargo_arrived", {
+        orgId: data.orgId,
         customerName: data.consigneeName,
         trackingCode: data.shipmentCode,
         port: data.to,
@@ -211,6 +229,7 @@ eventBus.on("dispute.opened", async (data) => {
   try {
     const templateName = data.status === "REVIEW" ? "dispute_review_pending" : "dispute_opened";
     await send(data.consigneePhone, templateName, {
+      orgId: data.orgId,
       customerName: data.consigneeName,
       trackingCode: data.trackingCode,
     });

@@ -30,6 +30,13 @@ router.post("/", authenticateEither, async (req, res) => {
   }
 
   try {
+    if (shipmentId) {
+      const shipment = await prisma.shipment.findFirst({
+        where: { id: shipmentId, organizationId: req.org.id },
+      });
+      if (!shipment) return res.status(404).json({ error: "Shipment not found" });
+    }
+
     const consignee = await prisma.consignee.create({
       data: {
         name,

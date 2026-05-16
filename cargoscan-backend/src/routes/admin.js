@@ -1,17 +1,9 @@
 const express = require("express");
 const { PrismaClient } = require("@prisma/client");
+const { requireSuperAdmin } = require("../middleware/superAdmin");
 
 const router = express.Router();
 const prisma = new PrismaClient();
-
-const requireSuperAdmin = (req, res, next) => {
-  const adminKey = req.headers["x-admin-key"];
-  // For development prototype fallback to checking JWT role as well
-  if (adminKey === process.env.SUPER_ADMIN_KEY || (req.user && req.user.role === 'SUPER_ADMIN')) {
-    return next();
-  }
-  return res.status(403).json({ error: "Unauthorized. Super Admin access required." });
-};
 
 router.get("/organizations", requireSuperAdmin, async (req, res) => {
   try {
@@ -46,6 +38,20 @@ router.get("/subscriptions", requireSuperAdmin, async (req, res) => {
             orderBy: { createdAt: 'desc' }
         });
         res.json(subs);
+    } catch(err) {
+        console.error(err);
+        res.status(500).json({ error: "Internal server error" });
+    }
+});
+
+router.get("/audit-logs", requireSuperAdmin, async (req, res) => {
+    try {
+        const logs = await prisma.auditLog.findMany({
+            include: { organization: { select: { name: true, slug: true } } },
+            orderBy: { createdAt: 'desc' },
+            take: 100
+        });
+        res.json(logs);
     } catch(err) {
         console.error(err);
         res.status(500).json({ error: "Internal server error" });

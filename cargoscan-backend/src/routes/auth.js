@@ -88,6 +88,7 @@ router.post("/signup", async (req, res) => {
     return res.status(201).json({
       message: "Account created successfully",
       token,
+      accessToken: token,
       refreshToken,
       user: { id: result.user.id, name: result.user.name, email: result.user.email, role: result.user.role },
       organization: { id: result.org.id, name: result.org.name, slug: result.org.slug, plan: result.org.plan },
@@ -113,6 +114,7 @@ router.post("/login", async (req, res) => {
         const token = jwt.sign({ role: "SUPER_ADMIN" }, process.env.JWT_SECRET, { expiresIn: "10h" });
         return res.json({
           token,
+          accessToken: token,
           user: { name: "Platform Admin", email, role: "SUPER_ADMIN" },
           organization: null,
         });
@@ -146,6 +148,7 @@ router.post("/login", async (req, res) => {
 
     return res.json({
       token,
+      accessToken: token,
       refreshToken,
       user: { id: user.id, name: user.name, email: user.email, role: user.role },
       organization: { id: user.organization.id, name: user.organization.name, slug: user.organization.slug, plan: user.organization.plan },
@@ -206,6 +209,7 @@ router.post("/refresh", async (req, res) => {
 
     res.json({
       token: newToken,
+      accessToken: newToken,
       refreshToken: newRefreshToken,
     });
   } catch (err) {

@@ -38,7 +38,10 @@ router.post(
       const { code, from, to, cbmCapacity, warehouseId } = req.body;
 
       const warehouse = await prisma.warehouse.findFirst({
-        where: { id: warehouseId, organizationId: req.org.id },
+        where: warehouseId
+          ? { id: warehouseId, organizationId: req.org.id }
+          : { organizationId: req.org.id },
+        orderBy: { createdAt: "asc" },
       });
       if (!warehouse) return res.status(404).json({ error: "Warehouse not found" });
 

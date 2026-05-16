@@ -3,6 +3,7 @@ const router = express.Router();
 const { PrismaClient } = require("@prisma/client");
 const { authenticateToken, requireRole } = require("../middleware/auth");
 const paystack = require("../services/paystack");
+const audit = require("../lib/audit");
 
 const prisma = new PrismaClient();
 
@@ -50,7 +51,7 @@ router.post("/init", authenticateToken, requireRole(["ADMIN"]), async (req, res)
       return res.status(400).json({ error: data.message });
     }
 
-    res.json(data.data); // { authorization_url, reference }
+    res.json({ ...data.data, reference }); // { authorization_url, reference }
   } catch (err) {
     console.error("Init Billing Error:", err);
     res.status(500).json({ error: "Internal Server Error" });
@@ -79,8 +80,14 @@ const webhookHandler = async (req, res) => {
       const metadata = event.data.metadata;
       const orgId = metadata ? metadata.orgId : null;
       const plan = metadata ? metadata.plan : "BUSINESS"; // fallback
+      const providerRef = event.data.reference || event.data.id?.toString();
 
-      if (orgId) {
+      if (orgId && providerRef) {
+        const existing = await prisma.subscription.findFirst({
+          where: { provider: "PAYSTACK", providerRef },
+        });
+        if (existing) return res.sendStatus(200);
+
         // Update Organization
         await prisma.organization.update({
           where: { id: orgId },
@@ -97,13 +104,21 @@ const webhookHandler = async (req, res) => {
             planCode: plan,
             status: "ACTIVE",
             provider: "PAYSTACK",
-            providerRef: event.data.reference,
+            providerRef,
           }
+        });
+
+        await audit.log({
+          orgId,
+          action: "BILLING_UPGRADE",
+          target: "SUBSCRIPTION",
+          targetId: providerRef,
+          details: { plan, event: event.event },
         });
         
         console.log(`Org ${orgId} upgraded to ${plan}`);
       }
-    } else if (event.event === "charge.failed") {
+    } else if (event.event === "charge.failed" || event.event === "invoice.payment_failed" || event.event === "subscription.disable") {
       const metadata = event.data.metadata;
       const orgId = metadata ? metadata.orgId : null;
       
@@ -118,6 +133,16 @@ const webhookHandler = async (req, res) => {
           const { sendPaymentFailed } = require("../services/email");
           await sendPaymentFailed(admin.email, admin.name, `${process.env.FRONTEND_URL || "http://localhost:3000"}/billing`);
         }
+
+        await prisma.subscription.create({
+          data: {
+            organizationId: orgId,
+            planCode: org.plan,
+            status: event.event === "subscription.disable" ? "DISABLED" : "PAYMENT_FAILED",
+            provider: "PAYSTACK",
+            providerRef: event.data.reference || event.data.subscription_code || event.data.id?.toString() || `paystack_${Date.now()}`,
+          }
+        }).catch(() => {});
       }
     }
 
@@ -145,6 +170,14 @@ router.post("/override", authenticateToken, requireRole(["SUPER_ADMIN"]), async 
         plan,
         planExpiresAt: expiresAt,
       }
+    });
+
+    await audit.log({
+      orgId,
+      action: "PLAN_OVERRIDE",
+      target: "ORGANIZATION",
+      targetId: orgId,
+      details: { plan, days },
     });
 
     res.json({ message: `Plan overridden to ${plan}`, org });

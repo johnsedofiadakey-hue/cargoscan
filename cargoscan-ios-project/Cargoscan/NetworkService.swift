@@ -21,7 +21,13 @@ struct ScanPayload: Codable {
 
 class NetworkService {
     static let shared = NetworkService()
-    private let baseURL = "https://cargoscan.onrender.com/api"
+    private let baseURL: String = {
+        if let value = Bundle.main.object(forInfoDictionaryKey: "CARGOSCAN_API_URL") as? String,
+           !value.isEmpty {
+            return value
+        }
+        return "https://cargoscan.onrender.com/api"
+    }()
     
     var currentToken: String? {
         KeychainHelper.shared.getToken(key: "cs_token")
@@ -54,7 +60,7 @@ class NetworkService {
         }
         
         if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-           let newToken = json["accessToken"] as? String {
+           let newToken = (json["token"] as? String) ?? (json["accessToken"] as? String) {
             KeychainHelper.shared.saveToken(newToken, key: "cs_token")
             return newToken
         }

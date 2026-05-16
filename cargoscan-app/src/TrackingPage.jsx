@@ -15,7 +15,7 @@ const C = {
   mono: "SFMono-Regular, Consolas, 'Liberation Mono', Menlo, Courier, monospace"
 };
 
-export default function TrackingPage() {
+export default function TrackingPage({ apiBase = import.meta.env.VITE_API_URL || "http://localhost:5000/api" }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [trackingData, setTrackingData] = useState(null);
@@ -25,7 +25,7 @@ export default function TrackingPage() {
   useEffect(() => {
     async function fetchTracking() {
       try {
-        const res = await fetch(`/api/tracking/${code}`);
+        const res = await fetch(`${apiBase}/tracking/${code}`);
         const data = await res.json();
         
         if (!res.ok) {
@@ -46,7 +46,7 @@ export default function TrackingPage() {
       setLoading(false);
       setError("No tracking code provided");
     }
-  }, [code]);
+  }, [apiBase, code]);
   
   if (loading) {
     return (

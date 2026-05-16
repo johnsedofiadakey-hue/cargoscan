@@ -34,7 +34,7 @@ struct HomeView: View {
                 
                 // Track ID Input for Linked Scan
                 VStack(alignment: .leading, spacing: 10) {
-                    Text("Cargo Item ID (Optional for Quick Scan)")
+                Text("Cargo Item ID")
                         .font(.system(size: 13, weight: .bold))
                         .foregroundColor(.secondary)
                         .padding(.leading, 4)
@@ -68,7 +68,7 @@ struct HomeView: View {
                             .ignoresSafeArea()
                     }
                     
-                    // Quick Scan
+                    // Quick Scan is intentionally view-only for the pilot until the app can create cargo items.
                     Button(action: {
                         showingQuickScan = true
                     }) {
@@ -99,6 +99,10 @@ struct HomeView: View {
     }
 }
 
-#Preview {
-    HomeView()
+#if DEBUG
+struct HomeView_Previews: PreviewProvider {
+    static var previews: some View {
+        HomeView()
+    }
 }
+#endif

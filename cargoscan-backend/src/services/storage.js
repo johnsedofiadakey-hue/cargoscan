@@ -34,9 +34,10 @@ const presignUpload = async ({ key, mimeType }) => {
     };
   } else {
     // Local fallback
-    const publicUrl = `${process.env.VITE_API_URL || "http://localhost:5000"}/uploads/${key}`;
+    const apiUrl = process.env.API_PUBLIC_URL || process.env.VITE_API_URL || "http://localhost:5000";
+    const publicUrl = `${apiUrl}/api/scans/uploads/${encodeURIComponent(key)}`;
     return {
-      uploadUrl: `${process.env.VITE_API_URL || "http://localhost:5000"}/api/scans/upload-local?key=${key}`,
+      uploadUrl: `${apiUrl}/api/scans/upload-local?key=${encodeURIComponent(key)}`,
       publicUrl,
       expiresAt: new Date(Date.now() + 15 * 60 * 1000),
     };
@@ -47,7 +48,8 @@ const getPublicUrl = (key) => {
   if (provider === "supabase") {
     return `${process.env.SUPABASE_URL}/storage/v1/object/public/cargoscan-photos/${key}`;
   } else {
-    return `${process.env.VITE_API_URL || "http://localhost:5000"}/uploads/${key}`;
+    const apiUrl = process.env.API_PUBLIC_URL || process.env.VITE_API_URL || "http://localhost:5000";
+    return `${apiUrl}/api/scans/uploads/${encodeURIComponent(key)}`;
   }
 };
 

@@ -50,7 +50,11 @@ const verifyWebhook = (rawBody, signature) => {
     .update(rawBody)
     .digest("hex");
 
-  return hash === signature;
+  try {
+    return crypto.timingSafeEqual(Buffer.from(hash), Buffer.from(signature));
+  } catch (err) {
+    return false;
+  }
 };
 
 module.exports = { initTransaction, verifyWebhook };

@@ -4,6 +4,42 @@ const { PrismaClient } = require("@prisma/client");
 
 const prisma = new PrismaClient();
 
+function itemDto(item) {
+  const latestScan = item.scanResults?.[0] || null;
+  return {
+    id: item.id,
+    description: item.description,
+    status: item.status,
+    isDamaged: item.isDamaged,
+    length: item.length,
+    width: item.width,
+    height: item.height,
+    cbm: item.cbm,
+    photoUrl: latestScan?.photoUrl || null,
+    scannedAt: latestScan?.createdAt || item.updatedAt || item.createdAt,
+  };
+}
+
+function shipmentDto(shipment) {
+  const cargoItems = shipment.cargoItems || [];
+  return {
+    id: shipment.id,
+    code: shipment.code,
+    from: shipment.from,
+    to: shipment.to,
+    status: shipment.status,
+    cbmCapacity: shipment.cbmCapacity,
+    cbm: cargoItems.reduce((sum, item) => sum + item.cbm, 0),
+    items: cargoItems.length,
+    createdAt: shipment.createdAt,
+    updatedAt: shipment.updatedAt,
+    cargoItems: cargoItems.map(itemDto),
+    organization: shipment.organization
+      ? { name: shipment.organization.name, slug: shipment.organization.slug }
+      : undefined,
+  };
+}
+
 // Public tracking by item ID or shipment code
 router.get("/:code", async (req, res) => {
   const { code } = req.params;
@@ -13,16 +49,20 @@ router.get("/:code", async (req, res) => {
     const shipment = await prisma.shipment.findUnique({
       where: { code: code },
       include: {
+        organization: { select: { name: true, slug: true } },
         cargoItems: {
           include: {
-            scanResults: true,
+            scanResults: {
+              orderBy: { createdAt: "desc" },
+              take: 1,
+            },
           }
         }
       }
     });
 
     if (shipment) {
-      return res.json({ type: "shipment", data: shipment });
+      return res.json({ type: "shipment", data: shipmentDto(shipment) });
     }
 
     // If not found, try to find a cargo item by ID
@@ -32,13 +72,15 @@ router.get("/:code", async (req, res) => {
         where: { id: code },
         include: {
           shipment: true,
-          scanResults: true,
-          scanCertificates: true,
+          scanResults: {
+            orderBy: { createdAt: "desc" },
+            take: 1,
+          },
         }
       });
 
       if (item) {
-        return res.json({ type: "item", data: item });
+        return res.json({ type: "item", data: itemDto(item) });
       }
     } catch (e) {
       // Ignore UUID parsing errors if code is not a valid UUID

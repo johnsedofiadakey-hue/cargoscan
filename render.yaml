@@ -1,0 +1,82 @@
+services:
+  - type: web
+    name: cargoscan-api
+    runtime: node
+    rootDir: cargoscan-backend
+    plan: starter
+    region: oregon
+    buildCommand: npm ci && npm run build
+    preDeployCommand: npx prisma migrate deploy
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: JWT_SECRET
+        generateValue: true
+      - key: DATABASE_URL
+        fromDatabase:
+          name: cargoscan-postgres
+          property: connectionString
+      - key: DIRECT_URL
+        fromDatabase:
+          name: cargoscan-postgres
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: cargoscan-redis
+          property: connectionString
+      - key: SUPER_ADMIN_EMAIL
+        value: admin@cargoscan.app
+      - key: SUPER_ADMIN_PASSWORD_HASH
+        sync: false
+      - key: SUPER_ADMIN_KEY
+        generateValue: true
+      - key: API_PUBLIC_URL
+        sync: false
+      - key: FRONTEND_URL
+        sync: false
+      - key: STORAGE_PROVIDER
+        value: supabase
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_KEY
+        sync: false
+      - key: PAYSTACK_SECRET_KEY
+        sync: false
+      - key: PAYSTACK_PUBLIC_KEY
+        sync: false
+      - key: SENDGRID_API_KEY
+        sync: false
+      - key: EMAIL_FROM
+        value: noreply@cargoscan.app
+      - key: WHATSAPP_PROVIDER
+        value: meta
+      - key: WHATSAPP_TOKEN
+        sync: false
+      - key: WHATSAPP_PHONE_ID
+        sync: false
+      - key: TWILIO_ACCOUNT_SID
+        sync: false
+      - key: TWILIO_AUTH_TOKEN
+        sync: false
+      - key: TWILIO_WHATSAPP_FROM
+        sync: false
+
+  - type: keyvalue
+    name: cargoscan-redis
+    plan: starter
+    region: oregon
+    ipAllowList: []
+    maxmemoryPolicy: allkeys-lru
+
+databases:
+  - name: cargoscan-postgres
+    plan: basic-256mb
+    region: oregon
+    databaseName: cargoscan
+    user: cargoscan
+    postgresMajorVersion: "17"

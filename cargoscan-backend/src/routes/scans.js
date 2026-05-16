@@ -26,6 +26,13 @@ const scanSchema = z.object({
   photoUrl: z.string().url().optional().nullable(),
 });
 
+// Serve local uploads before dynamic scan routes so /uploads/:key is public in dev.
+router.get("/uploads/:key", (req, res) => {
+  const filePath = path.join(__dirname, "../../uploads", path.basename(req.params.key));
+  if (!fs.existsSync(filePath)) return res.status(404).json({ error: "File not found" });
+  res.sendFile(filePath);
+});
+
 // Handle scanner incoming results
 router.post("/", authenticateEither, rateLimiter, async (req, res) => {
   try {
@@ -95,6 +102,10 @@ router.post("/", authenticateEither, rateLimiter, async (req, res) => {
       scanId: scan.id,
       certificateUrl: `/api/tracking/_verify/${certificate.hash}`,
       consigneePhone: cargoItem.consignee?.phone,
+      consigneeName: cargoItem.consignee?.name,
+      trackingCode: cargoItem.id,
+      dimensions: `${length}x${width}x${height} cm`,
+      cbm,
     });
 
     res.status(201).json({ ...scan, certificate });
@@ -190,13 +201,6 @@ router.put("/upload-local", express.raw({ type: "*/*" }), async (req, res) => {
   const filePath = path.join(uploadsDir, safeName);
   fs.writeFileSync(filePath, req.body);
   res.json({ message: "File uploaded successfully", key: safeName });
-});
-
-// Serve local uploads
-router.get("/uploads/:key", (req, res) => {
-  const filePath = path.join(__dirname, "../../uploads", path.basename(req.params.key));
-  if (!fs.existsSync(filePath)) return res.status(404).json({ error: "File not found" });
-  res.sendFile(filePath);
 });
 
 module.exports = router;

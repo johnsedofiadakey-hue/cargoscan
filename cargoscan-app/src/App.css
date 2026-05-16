@@ -1,42 +1,240 @@
-#root {
-  max-width: 1280px;
-  margin: 0 auto;
-  padding: 2rem;
-  text-align: center;
+.auth-shell {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: #071018;
 }
 
-.logo {
-  height: 6em;
-  padding: 1.5em;
-  will-change: filter;
-  transition: filter 300ms;
-}
-.logo:hover {
-  filter: drop-shadow(0 0 2em #646cffaa);
-}
-.logo.react:hover {
-  filter: drop-shadow(0 0 2em #61dafbaa);
+.auth-card, .panel, .metric, .item-card, .price-card {
+  background: #ffffff;
+  color: #111827;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  box-shadow: 0 12px 40px rgba(15, 23, 42, 0.08);
 }
 
-@keyframes logo-spin {
-  from {
-    transform: rotate(0deg);
+.auth-card {
+  width: min(460px, 100%);
+  padding: 28px;
+}
+
+.brand-mark {
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  background: #2563eb;
+  color: #fff;
+  font-weight: 800;
+  margin-bottom: 14px;
+}
+
+.app-shell {
+  min-height: 100vh;
+  padding: 24px;
+  background: #f8fafc;
+  color: #111827;
+}
+
+.topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.topbar div, .item-card, .price-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.topbar span, .metric span, .item-card span, .price-card span, .empty {
+  color: #64748b;
+  font-size: 13px;
+}
+
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.metric {
+  padding: 16px;
+}
+
+.metric strong {
+  display: block;
+  font-size: 28px;
+  margin-top: 4px;
+}
+
+.tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 18px;
+}
+
+.tabs button.active {
+  background: #2563eb;
+  color: #fff;
+}
+
+.tab-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.panel {
+  padding: 18px;
+}
+
+.wide {
+  grid-column: 1 / -1;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-bottom: 12px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #475569;
+}
+
+input, select {
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  padding: 10px 11px;
+  font: inherit;
+  color: #111827;
+  background: #fff;
+}
+
+button, .button-row a, .price-card a {
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  padding: 10px 12px;
+  background: #fff;
+  color: #111827;
+  font-weight: 700;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.primary {
+  width: 100%;
+  border-color: #2563eb;
+  background: #2563eb;
+  color: #fff;
+}
+
+.link-button {
+  border: 0;
+  padding: 12px 0 0;
+  color: #2563eb;
+}
+
+.notice {
+  padding: 10px 12px;
+  border-radius: 6px;
+  margin-bottom: 14px;
+  font-size: 13px;
+}
+
+.notice.error {
+  background: #fef2f2;
+  color: #b91c1c;
+}
+
+.notice.success {
+  background: #ecfdf5;
+  color: #047857;
+}
+
+.notice.info {
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.table-wrap {
+  overflow-x: auto;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+th, td {
+  border-bottom: 1px solid #e5e7eb;
+  padding: 10px;
+  text-align: left;
+}
+
+.cards {
+  display: grid;
+  gap: 10px;
+}
+
+.cards.two {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.cards.three {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.item-card, .price-card {
+  padding: 14px;
+}
+
+.button-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+
+.check-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+@media (max-width: 780px) {
+  .app-shell {
+    padding: 14px;
   }
-  to {
-    transform: rotate(360deg);
+
+  .topbar, .form-grid {
+    grid-template-columns: 1fr;
+    flex-direction: column;
+    align-items: stretch;
   }
-}
 
-@media (prefers-reduced-motion: no-preference) {
-  a:nth-of-type(2) .logo {
-    animation: logo-spin infinite 20s linear;
+  .metrics, .tab-grid, .cards.two, .cards.three {
+    grid-template-columns: 1fr;
   }
-}
-
-.card {
-  padding: 2em;
-}
-
-.read-the-docs {
-  color: #888;
 }

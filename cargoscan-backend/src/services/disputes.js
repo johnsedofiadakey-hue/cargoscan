@@ -1,4 +1,5 @@
 const { PrismaClient } = require("@prisma/client");
+const eventBus = require("../lib/events");
 const prisma = new PrismaClient();
 
 /**
@@ -38,7 +39,7 @@ async function evaluate(cargoItemId, newCbm, scanId, orgId) {
     }
 
     // Create dispute
-    await prisma.dispute.create({
+    const dispute = await prisma.dispute.create({
       data: {
         cargoItemId,
         status,
@@ -48,7 +49,23 @@ async function evaluate(cargoItemId, newCbm, scanId, orgId) {
       }
     });
 
-    // TODO: Send WhatsApp or trigger webhook
+    const item = await prisma.cargoItem.findUnique({
+      where: { id: cargoItemId },
+      include: { consignee: true },
+    });
+
+    const eventName = status === "RESOLVED" ? "dispute.resolved" : "dispute.opened";
+    eventBus.emit(eventName, {
+      orgId,
+      disputeId: dispute.id,
+      cargoItemId,
+      status,
+      originCbm: prev.cbm,
+      destinationCbm: newCbm,
+      consigneePhone: item?.consignee?.phone,
+      consigneeName: item?.consignee?.name,
+      trackingCode: cargoItemId,
+    });
 
   } catch (err) {
     console.error("Dispute Evaluation Error:", err);
