@@ -19,6 +19,17 @@ struct ScanPayload: Codable {
     let photoUrl: String?
 }
 
+struct CargoItem: Codable, Identifiable {
+    let id: String
+    let length: Float
+    let width: Float
+    let height: Float
+    let cbm: Float
+    let status: String?
+    let description: String?
+    let shipmentId: String
+}
+
 class NetworkService {
     static let shared = NetworkService()
     private let baseURL: String = {
@@ -26,7 +37,7 @@ class NetworkService {
            !value.isEmpty {
             return value
         }
-        return "https://cargoscan.onrender.com/api"
+        return "https://cargoscan-api.onrender.com/api"
     }()
     
     var currentToken: String? {
@@ -225,6 +236,60 @@ class NetworkService {
         let decoder = JSONDecoder()
         return try decoder.decode([Shipment].self, from: data)
     }
+
+    func getItems(shipmentId: String? = nil) async throws -> [CargoItem] {
+        guard var components = URLComponents(string: "\(baseURL)/items") else {
+            throw NetworkError.invalidURL
+        }
+        if let shipmentId {
+            components.queryItems = [URLQueryItem(name: "shipmentId", value: shipmentId)]
+        }
+        guard let url = components.url else {
+            throw NetworkError.invalidURL
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+
+        let (data, httpResponse) = try await performRequest(request)
+
+        guard (200...299).contains(httpResponse.statusCode) else {
+            throw NetworkError.serverError("Failed to fetch cargo items")
+        }
+
+        return try JSONDecoder().decode([CargoItem].self, from: data)
+    }
+
+    func createCargoItem(shipmentId: String, description: String?) async throws -> CargoItem {
+        guard let url = URL(string: "\(baseURL)/items") else {
+            throw NetworkError.invalidURL
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        let body: [String: Any] = [
+            "shipmentId": shipmentId,
+            "length": 1,
+            "width": 1,
+            "height": 1,
+            "description": description?.isEmpty == false ? description! : "Created from iPhone scan"
+        ]
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (data, httpResponse) = try await performRequest(request)
+
+        if !(200...299).contains(httpResponse.statusCode) {
+            if let errorJson = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let msg = errorJson["error"] as? String {
+                throw NetworkError.serverError(msg)
+            }
+            throw NetworkError.serverError("Failed to create cargo item")
+        }
+
+        return try JSONDecoder().decode(CargoItem.self, from: data)
+    }
     
     func getConsignees(shipmentId: String) async throws -> [Consignee] {
         guard let url = URL(string: "\(baseURL)/consignees?shipmentId=\(shipmentId)") else {
@@ -248,6 +313,9 @@ class NetworkService {
 struct Shipment: Codable, Identifiable {
     let id: String
     let code: String
+    let from: String?
+    let to: String?
+    let status: String?
 }
 
 struct Consignee: Codable, Identifiable {
