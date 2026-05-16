@@ -24,8 +24,7 @@ This repo is configured for the pilot deployment shape:
 Render will run:
 
 ```sh
-npm ci && npm run build
-npx prisma migrate deploy
+npm ci && npm run build && npx prisma migrate deploy
 npm start
 ```
 
