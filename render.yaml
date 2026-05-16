@@ -5,7 +5,7 @@ services:
     rootDir: cargoscan-backend
     plan: free
     region: oregon
-    buildCommand: npm ci && npm run build && npx prisma migrate deploy
+    buildCommand: npm ci && npm run build && (npx prisma migrate resolve --rolled-back 20260511000001_production_hardening || true) && npx prisma migrate deploy
     startCommand: npm start
     healthCheckPath: /api/health
     envVars:
