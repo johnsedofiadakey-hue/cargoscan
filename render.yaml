@@ -3,7 +3,7 @@ services:
     name: cargoscan-api
     runtime: node
     rootDir: cargoscan-backend
-    plan: starter
+    plan: free
     region: oregon
     buildCommand: npm ci && npm run build
     preDeployCommand: npx prisma migrate deploy
@@ -40,7 +40,7 @@ services:
       - key: FRONTEND_URL
         sync: false
       - key: STORAGE_PROVIDER
-        value: supabase
+        value: local
       - key: SUPABASE_URL
         sync: false
       - key: SUPABASE_KEY
@@ -68,14 +68,14 @@ services:
 
   - type: keyvalue
     name: cargoscan-redis
-    plan: starter
+    plan: free
     region: oregon
     ipAllowList: []
     maxmemoryPolicy: allkeys-lru
 
 databases:
   - name: cargoscan-postgres
-    plan: basic-256mb
+    plan: free
     region: oregon
     databaseName: cargoscan
     user: cargoscan

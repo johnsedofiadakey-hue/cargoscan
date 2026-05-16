@@ -6,7 +6,7 @@ This repo is configured for the pilot deployment shape:
 - Database: Render Postgres
 - Redis-compatible store: Render Key Value
 - Web app: Firebase Hosting
-- Scan photos: Supabase Storage bucket named `cargoscan-photos`
+- Scan photos: local Render disk for smoke tests, Supabase Storage later for production durability
 
 ## 1. Create Render Resources
 
@@ -50,15 +50,13 @@ You must provide these:
 - `SUPER_ADMIN_PASSWORD_HASH`
 - `API_PUBLIC_URL`
 - `FRONTEND_URL`
-- `SUPABASE_URL`
-- `SUPABASE_KEY`
 - `PAYSTACK_SECRET_KEY`
 - `PAYSTACK_PUBLIC_KEY`
 - `SENDGRID_API_KEY`
 - `WHATSAPP_TOKEN`
 - `WHATSAPP_PHONE_ID`
 
-For the first deploy, optional provider secrets can be left blank if you only need logged/skipped notifications. Set `API_PUBLIC_URL` to the Render API URL, for example:
+For the first deploy, optional provider secrets can be left blank if you only need logged/skipped notifications. The blueprint defaults `STORAGE_PROVIDER=local`, so Supabase is not required for the first smoke test. Set `API_PUBLIC_URL` to the Render API URL, for example:
 
 ```txt
 https://cargoscan-api.onrender.com
@@ -114,6 +112,7 @@ After both services are live:
 
 ## Notes
 
-- The blueprint uses paid pilot-sized Render plans: `starter` web/key-value and `basic-256mb` Postgres.
-- To reduce cost during setup, change plans in `render.yaml` before creating the Blueprint.
+- The blueprint uses free Render plans for the first smoke test.
+- Free Render services can sleep, restart, or have limited persistence. Upgrade before a real customer pilot.
+- Local uploaded photos on Render are not durable across restarts. Switch to Supabase Storage before relying on photo evidence.
 - Do not run `prisma/seed.js` against production unless you intentionally want demo data.
