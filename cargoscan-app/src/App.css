@@ -16,9 +16,9 @@
 .auth-card, .panel, .metric, .item-card, .price-card {
   background: #ffffff;
   color: #111827;
-  border: 1px solid #e5e7eb;
+  border: 1px solid rgba(203, 213, 225, 0.72);
   border-radius: 8px;
-  box-shadow: 0 12px 40px rgba(15, 23, 42, 0.08);
+  box-shadow: 0 14px 38px rgba(15, 23, 42, 0.07);
 }
 
 .auth-card {
@@ -296,10 +296,11 @@
 .portal-shell {
   min-height: 100vh;
   display: grid;
-  grid-template-columns: 280px minmax(0, 1fr);
+  grid-template-columns: 292px minmax(0, 1fr);
   background:
-    linear-gradient(180deg, rgba(15, 118, 110, 0.08), transparent 260px),
-    #f6f8fb;
+    radial-gradient(circle at 18% 4%, rgba(20, 184, 166, 0.14), transparent 26%),
+    radial-gradient(circle at 82% 0%, rgba(37, 99, 235, 0.13), transparent 28%),
+    linear-gradient(180deg, #eef6f7 0%, #f7f8fb 320px, #f8fafc 100%);
   color: #111827;
 }
 
@@ -311,7 +312,9 @@
   flex-direction: column;
   gap: 20px;
   padding: 22px;
-  background: #071018;
+  background:
+    linear-gradient(180deg, rgba(20, 184, 166, 0.12), transparent 240px),
+    #071018;
   color: #ffffff;
 }
 
@@ -356,12 +359,14 @@
   background: transparent;
   color: #cbd5e1;
   text-align: left;
+  min-height: 44px;
 }
 
 .portal-nav button.active {
   border-color: rgba(94, 234, 212, 0.32);
   background: rgba(20, 184, 166, 0.14);
   color: #ffffff;
+  box-shadow: inset 3px 0 0 #5eead4;
 }
 
 .logout-button {
@@ -371,7 +376,7 @@
 
 .portal-main {
   min-width: 0;
-  padding: 28px;
+  padding: 30px clamp(28px, 4vw, 56px);
 }
 
 .portal-topbar {
@@ -384,7 +389,7 @@
 
 .portal-topbar h1 {
   margin: 2px 0 0;
-  font-size: 34px;
+  font-size: 38px;
   letter-spacing: 0;
 }
 
@@ -403,7 +408,7 @@
   align-items: center;
   gap: 18px;
   margin-bottom: 16px;
-  padding: 18px;
+  padding: 20px 22px;
   border-radius: 8px;
   background:
     linear-gradient(135deg, rgba(15, 118, 110, 0.96), rgba(30, 64, 175, 0.92)),
@@ -426,6 +431,7 @@
   border-color: rgba(255, 255, 255, 0.34);
   background: rgba(255, 255, 255, 0.96);
   color: #0f172a;
+  min-height: 48px;
 }
 
 @keyframes scan-line {
@@ -509,13 +515,26 @@
 .metrics {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
-  margin-bottom: 18px;
+  gap: 14px;
+  margin-bottom: 20px;
 }
 
 .metric {
-  padding: 16px;
+  position: relative;
+  overflow: hidden;
+  padding: 18px;
   transition: transform 160ms ease, box-shadow 160ms ease;
+}
+
+.metric::after {
+  content: "";
+  position: absolute;
+  right: -28px;
+  top: -28px;
+  width: 84px;
+  height: 84px;
+  border-radius: 50%;
+  background: rgba(20, 184, 166, 0.11);
 }
 
 .metric:hover {
@@ -525,7 +544,7 @@
 
 .metric strong {
   display: block;
-  font-size: 28px;
+  font-size: 34px;
   margin-top: 4px;
 }
 
@@ -544,15 +563,18 @@
 .tab-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 16px;
+  gap: 18px;
+  align-items: start;
 }
 
 .panel {
-  padding: 18px;
+  padding: 22px;
 }
 
 .panel h2 {
-  margin-top: 0;
+  margin: 0 0 16px;
+  font-size: 24px;
+  letter-spacing: 0;
 }
 
 .wide {
@@ -578,10 +600,15 @@
 input, select {
   border: 1px solid #cbd5e1;
   border-radius: 6px;
-  padding: 10px 11px;
+  padding: 11px 12px;
   font: inherit;
   color: #111827;
   background: #fff;
+}
+
+input:focus, select:focus {
+  outline: 3px solid rgba(20, 184, 166, 0.18);
+  border-color: #0f766e;
 }
 
 button, .button-row a, .price-card a {
@@ -602,9 +629,15 @@ button:disabled {
 
 .primary {
   width: 100%;
-  border-color: #2563eb;
-  background: #2563eb;
+  border-color: #0f766e;
+  background: #0f766e;
   color: #fff;
+}
+
+.primary:hover,
+.portal-hero button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 28px rgba(15, 118, 110, 0.18);
 }
 
 .link-button {
@@ -645,6 +678,10 @@ table {
   font-size: 14px;
 }
 
+thead {
+  background: #f8fafc;
+}
+
 th, td {
   border-bottom: 1px solid #e5e7eb;
   padding: 10px;
@@ -665,7 +702,16 @@ th, td {
 }
 
 .item-card, .price-card {
-  padding: 14px;
+  padding: 16px;
+}
+
+.item-card {
+  transition: transform 160ms ease, box-shadow 160ms ease;
+}
+
+.item-card:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 16px 34px rgba(15, 23, 42, 0.08);
 }
 
 .button-row {
