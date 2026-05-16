@@ -194,6 +194,51 @@ const checkWebhookLimit = async (req, res, next) => {
   }
 };
 
+const checkContainerLimit = async (req, res, next) => {
+  const org = req.org;
+  const limits = LIMITS[org.plan || "TRIAL"];
+
+  if (limits.containers === Infinity) {
+    return next();
+  }
+
+  try {
+    const count = await prisma.container.count({
+      where: { organizationId: org.id },
+    });
+
+    if (count >= limits.containers) {
+      return res.status(429).json({
+        error: "Container limit reached for your plan",
+        code: "plan_limit",
+        limit: limits.containers,
+        used: count,
+      });
+    }
+
+    next();
+  } catch (err) {
+    console.error("Plan Limit Check Error:", err);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+};
+
+const requireFeature = (feature) => (req, res, next) => {
+  const plan = req.org?.plan || "TRIAL";
+  const limits = LIMITS[plan] || LIMITS.TRIAL;
+
+  if (!limits[feature]) {
+    return res.status(402).json({
+      error: `${feature} is not enabled for the ${plan} plan`,
+      code: "feature_not_enabled",
+      feature,
+      plan,
+    });
+  }
+
+  next();
+};
+
 module.exports = {
   checkPlanExpiration,
   checkShipmentLimit,
@@ -201,4 +246,6 @@ module.exports = {
   checkUsersLimit,
   checkApiKeyLimit,
   checkWebhookLimit,
+  checkContainerLimit,
+  requireFeature,
 };

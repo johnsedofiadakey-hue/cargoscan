@@ -55,6 +55,7 @@ You must provide these:
 - `WHATSAPP_TOKEN`
 - `WHATSAPP_PHONE_ID`
 - `OPENAI_API_KEY` if you want AI-assisted scan quality checks
+- `CONTAINER_TRACKING_API_KEY` later, if Enterprise live container tracking is connected to a provider
 
 For the first deploy, optional provider secrets can be left blank if you only need logged/skipped notifications. The blueprint defaults `STORAGE_PROVIDER=local`, so Supabase is not required for the first smoke test. Set `API_PUBLIC_URL` to the Render API URL, for example:
 

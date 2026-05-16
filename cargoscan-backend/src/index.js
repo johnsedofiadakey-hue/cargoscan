@@ -64,6 +64,7 @@ app.use(apiKeyRateLimiter);
 app.use("/api/auth", require("./routes/auth"));
 app.use("/api/items", require("./routes/items"));
 app.use("/api/shipments", require("./routes/shipments"));
+app.use("/api/containers", require("./routes/containers"));
 app.use("/api/scans", require("./routes/scans"));
 app.use("/api/disputes", require("./routes/disputes"));
 app.use("/api/admin", require("./routes/admin"));

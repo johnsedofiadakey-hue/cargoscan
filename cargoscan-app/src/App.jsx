@@ -7,6 +7,7 @@ const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
 const emptyShipment = { code: "", from: "Guangzhou", to: "Tema", cbmCapacity: "67.2" };
 const emptyItem = { shipmentId: "", consigneeId: "", description: "", length: "", width: "", height: "", isDamaged: false };
 const emptyConsignee = { name: "", phone: "", email: "", shipmentId: "", whatsappOptIn: true };
+const emptyContainer = { number: "", type: "40HQ", capacityCbm: "76", destination: "Tema", vessel: "", bookingNumber: "", sealNumber: "", shipmentId: "" };
 
 function authHeaders() {
   const token = localStorage.getItem("cs_token");
@@ -337,6 +338,133 @@ function CustomersTab({ data, reload, setMessage }) {
   );
 }
 
+function ContainersTab({ data, reload, setMessage, setError }) {
+  const [form, setForm] = useState(emptyContainer);
+  const [selectedContainerId, setSelectedContainerId] = useState("");
+  const [selectedItemId, setSelectedItemId] = useState("");
+
+  const shipmentOptions = [
+    { value: "", label: "No linked shipment" },
+    ...data.shipments.map((shipment) => ({ value: shipment.id, label: shipment.code })),
+  ];
+  const containerOptions = [
+    { value: "", label: "Select container" },
+    ...data.containers.map((container) => ({ value: container.id, label: `${container.number} · ${container.type}` })),
+  ];
+  const availableItems = data.items.filter((item) => !item.containerId);
+  const itemOptions = [
+    { value: "", label: "Select scanned package" },
+    ...availableItems.map((item) => ({
+      value: item.id,
+      label: `${item.description || item.id.slice(0, 8)} · ${Number(item.cbm || 0).toFixed(3)} CBM · ${item.consignee?.name || "No customer"}`,
+    })),
+  ];
+
+  async function createContainer(event) {
+    event.preventDefault();
+    await api("/containers", {
+      method: "POST",
+      body: JSON.stringify({
+        ...form,
+        capacityCbm: Number(form.capacityCbm),
+        shipmentId: form.shipmentId || null,
+      }),
+    });
+    setForm(emptyContainer);
+    setMessage("Container created.");
+    reload();
+  }
+
+  async function assignItem(event) {
+    event.preventDefault();
+    await api(`/containers/${selectedContainerId}/items`, {
+      method: "POST",
+      body: JSON.stringify({ cargoItemId: selectedItemId }),
+    });
+    setSelectedItemId("");
+    setMessage("Package moved to container.");
+    reload();
+  }
+
+  async function removeItem(containerId, itemId) {
+    await api(`/containers/${containerId}/items/${itemId}`, { method: "DELETE" });
+    setMessage("Package removed from container.");
+    reload();
+  }
+
+  async function checkLiveTracking(containerId) {
+    try {
+      const result = await api(`/containers/${containerId}/tracking`);
+      setMessage(result.message || `Tracking status: ${result.status}`);
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  return (
+    <div className="tab-grid">
+      <section className="panel">
+        <h2>Create container</h2>
+        <form onSubmit={createContainer}>
+          <Field label="Container number" value={form.number} required placeholder="MSCU1234567" onChange={(value) => setForm({ ...form, number: value.toUpperCase() })} />
+          <div className="form-grid">
+            <SelectField label="Type" value={form.type} onChange={(value) => setForm({ ...form, type: value, capacityCbm: value === "20FT" ? "33" : value === "40FT" ? "67" : "76" })} options={[
+              { value: "20FT", label: "20ft" },
+              { value: "40FT", label: "40ft" },
+              { value: "40HQ", label: "40HQ" },
+            ]} />
+            <Field label="Capacity CBM" type="number" value={form.capacityCbm} required onChange={(value) => setForm({ ...form, capacityCbm: value })} />
+          </div>
+          <SelectField label="Shipment" value={form.shipmentId} options={shipmentOptions} onChange={(value) => setForm({ ...form, shipmentId: value })} />
+          <Field label="Destination" value={form.destination} onChange={(value) => setForm({ ...form, destination: value })} />
+          <div className="form-grid">
+            <Field label="Vessel" value={form.vessel} onChange={(value) => setForm({ ...form, vessel: value })} />
+            <Field label="Booking number" value={form.bookingNumber} onChange={(value) => setForm({ ...form, bookingNumber: value })} />
+          </div>
+          <Field label="Seal number" value={form.sealNumber} onChange={(value) => setForm({ ...form, sealNumber: value })} />
+          <button className="primary">Create container</button>
+        </form>
+      </section>
+
+      <section className="panel">
+        <h2>Move package to container</h2>
+        <form onSubmit={assignItem}>
+          <SelectField label="Container" value={selectedContainerId} required options={containerOptions} onChange={setSelectedContainerId} />
+          <SelectField label="Package" value={selectedItemId} required options={itemOptions} onChange={setSelectedItemId} />
+          <button className="primary" disabled={!selectedContainerId || !selectedItemId}>Move package</button>
+        </form>
+        <p className="empty">{availableItems.length} scanned packages waiting for loading.</p>
+      </section>
+
+      <section className="panel wide">
+        <h2>Containers</h2>
+        <div className="cards">
+          {data.containers.map((container) => (
+            <article key={container.id} className="item-card manifest-card">
+              <strong>{container.number} · {container.type}</strong>
+              <span>{container.status} · {Number(container.totalCbm || 0).toFixed(3)} / {Number(container.capacityCbm || 0).toFixed(1)} CBM · {container.utilization || 0}% full</span>
+              <div className="progress"><span style={{ width: `${Math.min(container.utilization || 0, 100)}%` }} /></div>
+              <small>{container.destination || "No destination"} · {container.itemsCount || 0} packages · {container.customerCount || 0} customers</small>
+              <div className="button-row">
+                <button onClick={() => checkLiveTracking(container.id)}>Live tracking</button>
+              </div>
+              <div className="manifest-list">
+                {(container.cargoItems || []).map((item) => (
+                  <div key={item.id} className="manifest-row">
+                    <span>{item.description || item.id.slice(0, 8)} · {Number(item.cbm || 0).toFixed(3)} CBM · {item.consignee?.name || "No customer"}</span>
+                    <button onClick={() => removeItem(container.id, item.id)}>Remove</button>
+                  </div>
+                ))}
+              </div>
+            </article>
+          ))}
+          {!data.containers.length && <p className="empty">No containers yet.</p>}
+        </div>
+      </section>
+    </div>
+  );
+}
+
 function TeamTab({ data, reload, setMessage }) {
   const [form, setForm] = useState({ name: "", email: "", role: "OPERATOR" });
 
@@ -449,6 +577,7 @@ function BillingTab({ organization, setMessage }) {
           <article key={plan} className="price-card">
             <strong>{plan}</strong>
             <span>{plan === "STARTER" ? "$29" : plan === "BUSINESS" ? "$79" : "$199"} / month</span>
+            <small>{plan === "ENTERPRISE" ? "Includes live container tracking and custom integrations." : plan === "BUSINESS" ? "Includes WhatsApp, disputes, and higher limits." : "For small pilot teams."}</small>
             <button onClick={() => upgrade(plan)}>Upgrade</button>
           </article>
         ))}
@@ -510,16 +639,16 @@ function Dashboard({ session, setSession }) {
   const [active, setActive] = useState("shipments");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
-  const [data, setData] = useState({ shipments: [], items: [], consignees: [], users: [], keys: [], webhooks: [] });
+  const [data, setData] = useState({ shipments: [], items: [], consignees: [], containers: [], users: [], keys: [], webhooks: [] });
 
   const isAdmin = session.user.role === "ADMIN";
 
   const load = useCallback(async () => {
     try {
-      const baseCalls = [api("/shipments"), api("/items"), api("/consignees")];
+      const baseCalls = [api("/shipments"), api("/items"), api("/consignees"), api("/containers")];
       const adminCalls = isAdmin ? [api("/users"), api("/keys"), api("/webhooks")] : [Promise.resolve([]), Promise.resolve([]), Promise.resolve([])];
-      const [shipments, items, consignees, users, keys, webhooks] = await Promise.all([...baseCalls, ...adminCalls]);
-      setData({ shipments, items, consignees, users, keys, webhooks });
+      const [shipments, items, consignees, containers, users, keys, webhooks] = await Promise.all([...baseCalls, ...adminCalls]);
+      setData({ shipments, items, consignees, containers, users, keys, webhooks });
       setError("");
     } catch (err) {
       setError(err.message);
@@ -547,11 +676,12 @@ function Dashboard({ session, setSession }) {
       <section className="metrics">
         <Metric label="Shipments" value={data.shipments.length} />
         <Metric label="Cargo items" value={data.items.length} />
+        <Metric label="Containers" value={data.containers.length} />
         <Metric label="Customers" value={data.consignees.length} />
       </section>
 
       <nav className="tabs">
-        {["shipments", "customers", "team", "developers", "billing"].map((tab) => (
+        {["shipments", "containers", "customers", "team", "developers", "billing"].map((tab) => (
           <button key={tab} className={active === tab ? "active" : ""} disabled={!isAdmin && ["team", "developers", "billing"].includes(tab)} onClick={() => setActive(tab)}>
             {tab}
           </button>
@@ -562,6 +692,7 @@ function Dashboard({ session, setSession }) {
       <Notice type="error">{error}</Notice>
 
       {active === "shipments" && <ShipmentsTab data={data} reload={load} setMessage={setMessage} />}
+      {active === "containers" && <ContainersTab data={data} reload={load} setMessage={setMessage} setError={setError} />}
       {active === "customers" && <CustomersTab data={data} reload={load} setMessage={setMessage} />}
       {active === "team" && isAdmin && <TeamTab data={data} reload={load} setMessage={setMessage} />}
       {active === "developers" && isAdmin && <DevelopersTab data={data} reload={load} setMessage={setMessage} />}

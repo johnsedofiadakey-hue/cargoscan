@@ -26,6 +26,7 @@ model Organization {
   consignees      Consignee[]
   apiKeys         ApiKey[]
   webhooks        Webhook[]
+  containers      Container[]
 }
 
 model User {
@@ -136,8 +137,31 @@ model Shipment {
   warehouse       Warehouse         @relation(fields: [warehouseId], references: [id])
   cargoItems      CargoItem[]
   consignees      Consignee[]
+  containers      Container[]
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @updatedAt
+}
+
+model Container {
+  id              String            @id @default(uuid())
+  number          String
+  type            String            @default("40HQ") // 20FT, 40FT, 40HQ
+  status          String            @default("OPEN") // OPEN, LOADING, SEALED, IN_TRANSIT, ARRIVED, DELIVERED
+  capacityCbm     Float
+  destination     String?
+  vessel          String?
+  bookingNumber   String?
+  sealNumber      String?
+  departureDate   DateTime?
+  organizationId  String
+  shipmentId      String?
+  organization    Organization      @relation(fields: [organizationId], references: [id])
+  shipment        Shipment?         @relation(fields: [shipmentId], references: [id])
+  cargoItems      CargoItem[]
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  @@unique([organizationId, number])
 }
 
 model CargoItem {
@@ -151,6 +175,8 @@ model CargoItem {
   isDamaged       Boolean           @default(false)
   shipmentId      String
   shipment        Shipment          @relation(fields: [shipmentId], references: [id])
+  containerId     String?
+  container       Container?        @relation(fields: [containerId], references: [id])
   consigneeId     String?
   consignee       Consignee?        @relation(fields: [consigneeId], references: [id])
   description     String?

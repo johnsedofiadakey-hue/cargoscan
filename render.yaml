@@ -54,6 +54,10 @@ services:
         sync: false
       - key: OPENAI_SCAN_QUALITY_MODEL
         value: gpt-5-mini
+      - key: CONTAINER_TRACKING_PROVIDER
+        value: manual
+      - key: CONTAINER_TRACKING_API_KEY
+        sync: false
       - key: EMAIL_FROM
         value: noreply@cargoscan.app
       - key: WHATSAPP_PROVIDER

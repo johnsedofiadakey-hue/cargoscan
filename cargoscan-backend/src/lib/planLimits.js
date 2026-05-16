@@ -7,6 +7,8 @@ const LIMITS = {
     webhooks: 1,
     whatsapp: false,
     disputes: false,
+    containers: 1,
+    containerTracking: false,
   },
   STARTER: {
     users: 3,
@@ -16,6 +18,8 @@ const LIMITS = {
     webhooks: 5,
     whatsapp: false,
     disputes: false,
+    containers: 5,
+    containerTracking: false,
   },
   BUSINESS: {
     users: 10,
@@ -25,6 +29,8 @@ const LIMITS = {
     webhooks: 20,
     whatsapp: true,
     disputes: true,
+    containers: 50,
+    containerTracking: false,
   },
   ENTERPRISE: {
     users: Infinity,
@@ -34,6 +40,8 @@ const LIMITS = {
     webhooks: Infinity,
     whatsapp: true,
     disputes: true,
+    containers: Infinity,
+    containerTracking: true,
   },
 };
 

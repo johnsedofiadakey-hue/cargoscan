@@ -18,7 +18,7 @@ router.get("/", authenticateEither, async (req, res) => {
         ...(shipmentId ? { shipmentId } : {}),
         shipment: { organizationId: req.org.id },
       },
-      include: { scanResults: true, shipment: true },
+      include: { scanResults: true, shipment: true, consignee: true, container: true },
       orderBy: { createdAt: "desc" },
     });
     res.json(items);
