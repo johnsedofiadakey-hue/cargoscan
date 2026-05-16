@@ -68,6 +68,7 @@ function Login({ onLogin }) {
   const [mode, setMode] = useState("login");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [authNote, setAuthNote] = useState("");
   const [login, setLogin] = useState({ email: "", password: "" });
   const [signup, setSignup] = useState({
     name: "",
@@ -78,6 +79,10 @@ function Login({ onLogin }) {
     city: "Accra",
     cbmRate: "85",
   });
+
+  function googleSignIn() {
+    setAuthNote("Google sign-in is next: enable Google provider in Firebase Auth, then we will connect the backend token exchange.");
+  }
 
   async function submit(event) {
     event.preventDefault();
@@ -101,11 +106,44 @@ function Login({ onLogin }) {
 
   return (
     <main className="auth-shell">
+      <section className="auth-hero" aria-label="CargoScan product overview">
+        <div className="auth-orbit">
+          <div className="scan-frame">
+            <div className="scan-line" />
+            <div className="box-wire box-a" />
+            <div className="box-wire box-b" />
+            <span className="scan-tag tag-top">LiDAR locked</span>
+            <span className="scan-tag tag-bottom">76.4% container full</span>
+          </div>
+        </div>
+        <div className="auth-copy">
+          <div className="brand-row">
+            <div className="brand-mark">CS</div>
+            <span>CargoScan Pilot</span>
+          </div>
+          <h1>Scan cargo, build manifests, and load containers with confidence.</h1>
+          <p>Capture dimensions on LiDAR iPhones, review scan quality, assign packages to containers, and keep customers updated from one dashboard.</p>
+          <div className="feature-grid">
+            <article><strong>LiDAR + AI QC</strong><span>Operator guidance, photos, CBM, and quality scores.</span></article>
+            <article><strong>Warehouse inventory</strong><span>Every package tied to image, customer, shipment, and status.</span></article>
+            <article><strong>Container loading</strong><span>Move items into containers and watch utilization in real time.</span></article>
+            <article><strong>Developer-ready</strong><span>API keys, webhooks, and Enterprise tracking hooks.</span></article>
+          </div>
+        </div>
+      </section>
+
       <section className="auth-card">
-        <div className="brand-mark">CS</div>
-        <h1>CargoScan</h1>
-        <p>Private pilot workspace for freight measurement and tracking.</p>
+        <div className="auth-card-header">
+          <span>{mode === "login" ? "Welcome back" : "Start pilot"}</span>
+          <h2>{mode === "login" ? "Sign in to dashboard" : "Create your workspace"}</h2>
+        </div>
         <Notice type="error">{error}</Notice>
+        <Notice type="info">{authNote}</Notice>
+        <button className="google-button" type="button" onClick={googleSignIn}>
+          <span className="google-mark">G</span>
+          Continue with Google
+        </button>
+        <div className="auth-divider"><span>or use email</span></div>
         <form onSubmit={submit}>
           {mode === "signup" && (
             <>
@@ -132,11 +170,19 @@ function Login({ onLogin }) {
             required
             onChange={(value) => (mode === "login" ? setLogin({ ...login, password: value }) : setSignup({ ...signup, password: value }))}
           />
-          <button className="primary" disabled={loading}>{loading ? "Working..." : mode === "login" ? "Sign in" : "Create pilot org"}</button>
+          <button className="primary auth-primary" disabled={loading}>{loading ? "Working..." : mode === "login" ? "Enter dashboard" : "Create pilot org"}</button>
         </form>
-        <button className="link-button" onClick={() => setMode(mode === "login" ? "signup" : "login")}>
+        <button className="link-button" onClick={() => {
+          setError("");
+          setAuthNote("");
+          setMode(mode === "login" ? "signup" : "login");
+        }}>
           {mode === "login" ? "Create a pilot organization" : "Back to sign in"}
         </button>
+        <div className="install-strip">
+          <strong>Mobile install lives here</strong>
+          <span>Operators scan the dashboard QR code to install the LiDAR app through TestFlight.</span>
+        </div>
       </section>
     </main>
   );
