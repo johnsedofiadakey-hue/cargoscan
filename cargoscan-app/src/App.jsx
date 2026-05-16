@@ -176,7 +176,7 @@ function Login({ onLogin }) {
             <article><strong>LiDAR + AI QC</strong><span>Operator guidance, photos, CBM, and quality scores.</span></article>
             <article><strong>Warehouse inventory</strong><span>Every package tied to image, customer, shipment, and status.</span></article>
             <article><strong>Container loading</strong><span>Move items into containers and watch utilization in real time.</span></article>
-            <article><strong>Developer-ready</strong><span>API keys, webhooks, and Enterprise tracking hooks.</span></article>
+            <article><strong>Customer-ready</strong><span>Tracking pages, loading updates, and clean operational handoff.</span></article>
           </div>
         </div>
       </section>
@@ -601,61 +601,6 @@ function TeamTab({ data, reload, setMessage }) {
   );
 }
 
-function DevelopersTab({ data, reload, setMessage }) {
-  const [keyForm, setKeyForm] = useState({ name: "", scopes: "items:write,scans:write", environment: "test" });
-  const [webhookForm, setWebhookForm] = useState({ name: "", url: "", events: "scan.created,shipment.status_changed" });
-
-  async function createKey(event) {
-    event.preventDefault();
-    const result = await api("/keys", { method: "POST", body: JSON.stringify(keyForm) });
-    setMessage(`API key created. Secret: ${result.secret}`);
-    setKeyForm({ name: "", scopes: "items:write,scans:write", environment: "test" });
-    reload();
-  }
-
-  async function createWebhook(event) {
-    event.preventDefault();
-    await api("/webhooks", { method: "POST", body: JSON.stringify(webhookForm) });
-    setMessage("Webhook created.");
-    setWebhookForm({ name: "", url: "", events: "scan.created,shipment.status_changed" });
-    reload();
-  }
-
-  return (
-    <div className="tab-grid">
-      <section className="panel">
-        <h2>Create API key</h2>
-        <form onSubmit={createKey}>
-          <Field label="Name" value={keyForm.name} required onChange={(value) => setKeyForm({ ...keyForm, name: value })} />
-          <Field label="Scopes" value={keyForm.scopes} required onChange={(value) => setKeyForm({ ...keyForm, scopes: value })} />
-          <SelectField label="Environment" value={keyForm.environment} onChange={(value) => setKeyForm({ ...keyForm, environment: value })} options={[
-            { value: "test", label: "Test" },
-            { value: "live", label: "Live" },
-          ]} />
-          <button className="primary">Create key</button>
-        </form>
-      </section>
-      <section className="panel">
-        <h2>Create webhook</h2>
-        <form onSubmit={createWebhook}>
-          <Field label="Name" value={webhookForm.name} required onChange={(value) => setWebhookForm({ ...webhookForm, name: value })} />
-          <Field label="URL" type="url" value={webhookForm.url} required onChange={(value) => setWebhookForm({ ...webhookForm, url: value })} />
-          <Field label="Events" value={webhookForm.events} required onChange={(value) => setWebhookForm({ ...webhookForm, events: value })} />
-          <button className="primary">Create webhook</button>
-        </form>
-      </section>
-      <section className="panel wide">
-        <h2>Developer resources</h2>
-        <div className="cards two">
-          {data.keys.map((key) => <article key={key.id} className="item-card"><strong>{key.name}</strong><span>{key.prefix}... · {key.scopes}</span></article>)}
-          {data.webhooks.map((webhook) => <article key={webhook.id} className="item-card"><strong>{webhook.name}</strong><span>{webhook.url} · {webhook.eventFilter}</span></article>)}
-          {!data.keys.length && !data.webhooks.length && <p className="empty">No API keys or webhooks yet.</p>}
-        </div>
-      </section>
-    </div>
-  );
-}
-
 function MobileAppTab({ session }) {
   const installUrl = IOS_TESTFLIGHT_URL;
   const qrUrl = installUrl
@@ -668,7 +613,7 @@ function MobileAppTab({ session }) {
         <div>
           <span className="section-kicker">Operator app</span>
           <h2>Install CargoScan LiDAR on warehouse iPhones</h2>
-          <p>The mobile app is for operators scanning cargo. The desktop dashboard stays here for admins, manifests, customers, containers, billing, and API setup.</p>
+          <p>The mobile app is for operators scanning cargo. The desktop dashboard stays here for admins, manifests, customers, containers, billing, and team setup.</p>
         </div>
         <div className="install-status-row">
           <span className="status-dot live" /> Dashboard connected
@@ -689,7 +634,15 @@ function MobileAppTab({ session }) {
             <strong>QR appears after TestFlight setup</strong>
           </div>
         )}
-        <small>{installUrl ? "Operators scan this with a LiDAR-enabled iPhone." : "Next step: upload the iOS build to TestFlight and add VITE_IOS_TESTFLIGHT_URL before deployment."}</small>
+        <small>{installUrl ? "Operators scan this with a LiDAR-enabled iPhone." : "No public download link exists yet. Today we install from Xcode; the next release step is TestFlight."}</small>
+      </section>
+
+      <section className="panel download-card">
+        <span className="section-kicker">Current install method</span>
+        <h2>Install on your iPhone now</h2>
+        <p>Connect your LiDAR iPhone to this Mac, open the Xcode project, select your phone, and press Run.</p>
+        <code>/Users/truth/cargoscan/cargoscan-ios-project/Cargoscan.xcodeproj</code>
+        <small>After TestFlight is ready, this panel becomes a QR download link for operators.</small>
       </section>
 
       <section className="panel">
@@ -811,16 +764,16 @@ function Dashboard({ session, setSession }) {
   const [active, setActive] = useState("shipments");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
-  const [data, setData] = useState({ shipments: [], items: [], consignees: [], containers: [], users: [], keys: [], webhooks: [] });
+  const [data, setData] = useState({ shipments: [], items: [], consignees: [], containers: [], users: [] });
 
   const isAdmin = session.user.role === "ADMIN";
 
   const load = useCallback(async () => {
     try {
       const baseCalls = [api("/shipments"), api("/items"), api("/consignees"), api("/containers")];
-      const adminCalls = isAdmin ? [api("/users"), api("/keys"), api("/webhooks")] : [Promise.resolve([]), Promise.resolve([]), Promise.resolve([])];
-      const [shipments, items, consignees, containers, users, keys, webhooks] = await Promise.all([...baseCalls, ...adminCalls]);
-      setData({ shipments, items, consignees, containers, users, keys, webhooks });
+      const adminCalls = isAdmin ? [api("/users")] : [Promise.resolve([])];
+      const [shipments, items, consignees, containers, users] = await Promise.all([...baseCalls, ...adminCalls]);
+      setData({ shipments, items, consignees, containers, users });
       setError("");
     } catch (err) {
       setError(err.message);
@@ -835,41 +788,74 @@ function Dashboard({ session, setSession }) {
     setSession(null);
   }
 
+  const navItems = [
+    { id: "shipments", label: "Operations" },
+    { id: "containers", label: "Containers" },
+    { id: "customers", label: "Customers" },
+    { id: "mobile app", label: "Mobile App" },
+    ...(isAdmin ? [
+      { id: "team", label: "Team" },
+      { id: "billing", label: "Billing" },
+    ] : []),
+  ];
+
   return (
-    <main className="app-shell">
-      <header className="topbar">
-        <div>
-          <strong>{session.organization?.name || "CargoScan"}</strong>
-          <span>{session.user.name} · {session.user.role} · {session.organization?.plan}</span>
+    <main className="portal-shell">
+      <aside className="portal-sidebar">
+        <div className="portal-brand">
+          <div className="brand-mark">CS</div>
+          <div>
+            <strong>CargoScan</strong>
+            <span>{session.organization?.plan || "TRIAL"} workspace</span>
+          </div>
         </div>
-        <button onClick={logout}>Logout</button>
-      </header>
+        <nav className="portal-nav">
+          {navItems.map((tab) => (
+            <button key={tab.id} className={active === tab.id ? "active" : ""} onClick={() => setActive(tab.id)}>
+              {tab.label}
+            </button>
+          ))}
+        </nav>
+        <button className="logout-button" onClick={logout}>Logout</button>
+      </aside>
 
-      <section className="metrics">
-        <Metric label="Shipments" value={data.shipments.length} />
-        <Metric label="Cargo items" value={data.items.length} />
-        <Metric label="Containers" value={data.containers.length} />
-        <Metric label="Customers" value={data.consignees.length} />
+      <section className="portal-main">
+        <header className="portal-topbar">
+          <div>
+            <span className="section-kicker">{session.organization?.name || "CargoScan"}</span>
+            <h1>{active === "shipments" ? "Warehouse Operations" : navItems.find((item) => item.id === active)?.label}</h1>
+          </div>
+          <div className="user-pill">
+            <strong>{session.user.name}</strong>
+            <span>{session.user.role}</span>
+          </div>
+        </header>
+
+        <section className="portal-hero">
+          <div>
+            <strong>{data.items.filter((item) => !item.containerId).length} packages waiting</strong>
+            <span>Scan cargo, assign customers, and load containers from one desktop workspace.</span>
+          </div>
+          <button onClick={() => setActive("mobile app")}>Install iPhone scanner</button>
+        </section>
+
+        <section className="metrics">
+          <Metric label="Shipments" value={data.shipments.length} />
+          <Metric label="Cargo items" value={data.items.length} />
+          <Metric label="Containers" value={data.containers.length} />
+          <Metric label="Customers" value={data.consignees.length} />
+        </section>
+
+        <Notice type="success">{message}</Notice>
+        <Notice type="error">{error}</Notice>
+
+        {active === "shipments" && <ShipmentsTab data={data} reload={load} setMessage={setMessage} />}
+        {active === "containers" && <ContainersTab data={data} reload={load} setMessage={setMessage} setError={setError} />}
+        {active === "customers" && <CustomersTab data={data} reload={load} setMessage={setMessage} />}
+        {active === "mobile app" && <MobileAppTab session={session} />}
+        {active === "team" && isAdmin && <TeamTab data={data} reload={load} setMessage={setMessage} />}
+        {active === "billing" && isAdmin && <BillingTab organization={session.organization} setMessage={setMessage} />}
       </section>
-
-      <nav className="tabs">
-        {["shipments", "containers", "customers", "mobile app", "team", "developers", "billing"].map((tab) => (
-          <button key={tab} className={active === tab ? "active" : ""} disabled={!isAdmin && ["team", "developers", "billing"].includes(tab)} onClick={() => setActive(tab)}>
-            {tab}
-          </button>
-        ))}
-      </nav>
-
-      <Notice type="success">{message}</Notice>
-      <Notice type="error">{error}</Notice>
-
-      {active === "shipments" && <ShipmentsTab data={data} reload={load} setMessage={setMessage} />}
-      {active === "containers" && <ContainersTab data={data} reload={load} setMessage={setMessage} setError={setError} />}
-      {active === "customers" && <CustomersTab data={data} reload={load} setMessage={setMessage} />}
-      {active === "mobile app" && <MobileAppTab session={session} />}
-      {active === "team" && isAdmin && <TeamTab data={data} reload={load} setMessage={setMessage} />}
-      {active === "developers" && isAdmin && <DevelopersTab data={data} reload={load} setMessage={setMessage} />}
-      {active === "billing" && isAdmin && <BillingTab organization={session.organization} setMessage={setMessage} />}
     </main>
   );
 }
