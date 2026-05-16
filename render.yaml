@@ -58,6 +58,10 @@ services:
         value: manual
       - key: CONTAINER_TRACKING_API_KEY
         sync: false
+      - key: FIREBASE_PROJECT_ID
+        value: cargoscan-app-2026
+      - key: FIREBASE_SERVICE_ACCOUNT_JSON
+        sync: false
       - key: EMAIL_FROM
         value: noreply@cargoscan.app
       - key: WHATSAPP_PROVIDER

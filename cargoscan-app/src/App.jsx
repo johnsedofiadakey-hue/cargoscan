@@ -1,8 +1,20 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { initializeApp, getApps } from "firebase/app";
+import { getAuth, GoogleAuthProvider, signInWithPopup } from "firebase/auth";
 import "./App.css";
 import TrackingPage from "./TrackingPage";
 
 const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
+const firebaseConfig = {
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "AIzaSyDj52I2LmZS4RifzDB_EvFwMsg-NWBasUU",
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "cargoscan-app-2026.firebaseapp.com",
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || "cargoscan-app-2026",
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || "cargoscan-app-2026.firebasestorage.app",
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "655859091408",
+  appId: import.meta.env.VITE_FIREBASE_APP_ID || "1:655859091408:web:ed821125f7e0605daf5bd5",
+};
+const firebaseApp = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
+const firebaseAuth = getAuth(firebaseApp);
 
 const emptyShipment = { code: "", from: "Guangzhou", to: "Tema", cbmCapacity: "67.2" };
 const emptyItem = { shipmentId: "", consigneeId: "", description: "", length: "", width: "", height: "", isDamaged: false };
@@ -80,8 +92,44 @@ function Login({ onLogin }) {
     cbmRate: "85",
   });
 
-  function googleSignIn() {
-    setAuthNote("Google sign-in is next: enable Google provider in Firebase Auth, then we will connect the backend token exchange.");
+  async function googleSignIn() {
+    setLoading(true);
+    setError("");
+    setAuthNote("");
+    try {
+      if (mode === "signup" && (!signup.company || !signup.country || !signup.city)) {
+        setAuthNote("Fill company, country, and city first, then continue with Google to create the pilot organization.");
+        return;
+      }
+
+      const provider = new GoogleAuthProvider();
+      provider.setCustomParameters({ prompt: "select_account" });
+      const result = await signInWithPopup(firebaseAuth, provider);
+      const idToken = await result.user.getIdToken();
+      const payload = mode === "signup"
+        ? {
+            idToken,
+            mode: "signup",
+            company: signup.company,
+            country: signup.country,
+            city: signup.city,
+            cbmRate: signup.cbmRate,
+          }
+        : { idToken, mode: "login" };
+
+      const data = await api("/auth/firebase", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+
+      localStorage.setItem("cs_token", data.token);
+      if (data.refreshToken) localStorage.setItem("cs_refresh_token", data.refreshToken);
+      onLogin({ user: data.user, organization: data.organization });
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
   }
 
   async function submit(event) {

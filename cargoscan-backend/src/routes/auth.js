@@ -5,12 +5,34 @@ const { PrismaClient } = require("@prisma/client");
 const redis = require("../services/redis");
 const crypto = require("crypto");
 const { authenticateToken } = require("../middleware/auth");
+const { verifyFirebaseIdToken } = require("../services/firebaseAdmin");
 
 const router = express.Router();
 const prisma = new PrismaClient();
 
 const generateSlug = (name) => {
   return name.toLowerCase().replace(/[^a-z0-9 ]/g, "").replace(/\s+/g, "-").slice(0, 32);
+};
+
+const issueSession = async (user, organization) => {
+  const token = jwt.sign({ id: user.id, role: user.role, orgId: user.organizationId }, process.env.JWT_SECRET, {
+    expiresIn: "15m",
+  });
+
+  const randomSecret = crypto.randomBytes(40).toString("hex");
+  const refreshToken = `${user.id}.${randomSecret}`;
+  const hashedRefreshToken = await bcrypt.hash(randomSecret, 10);
+  await redis.setex(`rt:${user.id}:default`, 30 * 24 * 60 * 60, hashedRefreshToken);
+
+  return {
+    token,
+    accessToken: token,
+    refreshToken,
+    user: { id: user.id, name: user.name, email: user.email, role: user.role },
+    organization: organization
+      ? { id: organization.id, name: organization.name, slug: organization.slug, plan: organization.plan }
+      : null,
+  };
 };
 
 router.post("/signup", async (req, res) => {
@@ -96,6 +118,89 @@ router.post("/signup", async (req, res) => {
   } catch (error) {
     console.error("Signup error:", error);
     return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+router.post("/firebase", async (req, res) => {
+  try {
+    const { idToken, mode = "login", company, country, city, cbmRate } = req.body;
+    if (!idToken) return res.status(400).json({ error: "Missing Firebase ID token" });
+
+    const decoded = await verifyFirebaseIdToken(idToken);
+    const email = decoded.email;
+    const name = decoded.name || email?.split("@")[0] || "CargoScan User";
+    if (!email) return res.status(400).json({ error: "Google account email is required" });
+
+    const existingUser = await prisma.user.findUnique({
+      where: { email },
+      include: { organization: true },
+    });
+
+    if (existingUser) {
+      if (!existingUser.active) return res.status(401).json({ error: "Account disabled" });
+      const session = await issueSession(existingUser, existingUser.organization);
+      return res.json(session);
+    }
+
+    if (mode !== "signup") {
+      return res.status(404).json({
+        error: "No CargoScan account exists for this Google email. Choose Create a pilot organization first.",
+      });
+    }
+
+    if (!company || !country || !city) {
+      return res.status(400).json({ error: "Company, country, and city are required for Google signup" });
+    }
+
+    const baseSlug = generateSlug(company);
+    let slug = baseSlug;
+    const slugExists = await prisma.organization.findUnique({ where: { slug } });
+    if (slugExists) slug = `${baseSlug}-${Date.now()}`;
+
+    const randomPassword = crypto.randomBytes(32).toString("hex");
+    const hashedPassword = await bcrypt.hash(randomPassword, 10);
+
+    const result = await prisma.$transaction(async (tx) => {
+      const org = await tx.organization.create({
+        data: {
+          name: company,
+          slug,
+          plan: "TRIAL",
+          planExpiresAt: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000),
+          defaultCbmRate: cbmRate ? parseFloat(cbmRate) : 85.0,
+          country,
+          city,
+        },
+      });
+
+      const user = await tx.user.create({
+        data: {
+          name,
+          email,
+          password: hashedPassword,
+          role: "ADMIN",
+          organizationId: org.id,
+        },
+      });
+
+      const warehouse = await tx.warehouse.create({
+        data: {
+          name: `${city} Warehouse`,
+          organizationId: org.id,
+        },
+      });
+
+      return { org, user, warehouse };
+    });
+
+    const { sendWelcomeEmail } = require("../services/email");
+    await sendWelcomeEmail(result.user.email, result.user.name);
+
+    const session = await issueSession(result.user, result.org);
+    return res.status(201).json({ message: "Account created successfully", ...session });
+  } catch (error) {
+    console.error("Firebase auth error:", error);
+    return res.status(401).json({ error: "Google sign-in could not be verified" });
   }
 });
 
