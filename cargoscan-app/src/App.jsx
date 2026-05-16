@@ -5,6 +5,7 @@ import "./App.css";
 import TrackingPage from "./TrackingPage";
 
 const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
+const IOS_TESTFLIGHT_URL = import.meta.env.VITE_IOS_TESTFLIGHT_URL || "";
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "AIzaSyDj52I2LmZS4RifzDB_EvFwMsg-NWBasUU",
   authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "cargoscan-app-2026.firebaseapp.com",
@@ -655,6 +656,83 @@ function DevelopersTab({ data, reload, setMessage }) {
   );
 }
 
+function MobileAppTab({ session }) {
+  const installUrl = IOS_TESTFLIGHT_URL;
+  const qrUrl = installUrl
+    ? `https://api.qrserver.com/v1/create-qr-code/?size=220x220&margin=14&data=${encodeURIComponent(installUrl)}`
+    : "";
+
+  return (
+    <div className="tab-grid install-grid">
+      <section className="panel install-hero-panel">
+        <div>
+          <span className="section-kicker">Operator app</span>
+          <h2>Install CargoScan LiDAR on warehouse iPhones</h2>
+          <p>The mobile app is for operators scanning cargo. The desktop dashboard stays here for admins, manifests, customers, containers, billing, and API setup.</p>
+        </div>
+        <div className="install-status-row">
+          <span className="status-dot live" /> Dashboard connected
+          <span className="status-dot pending" /> TestFlight pending
+        </div>
+      </section>
+
+      <section className="panel qr-panel">
+        <h2>Download QR</h2>
+        {qrUrl ? (
+          <>
+            <img className="qr-code" src={qrUrl} alt="CargoScan iOS TestFlight QR code" />
+            <a className="primary install-link" href={installUrl} target="_blank" rel="noreferrer">Open TestFlight link</a>
+          </>
+        ) : (
+          <div className="qr-placeholder" aria-label="TestFlight QR code not configured">
+            <span />
+            <strong>QR appears after TestFlight setup</strong>
+          </div>
+        )}
+        <small>{installUrl ? "Operators scan this with a LiDAR-enabled iPhone." : "Next step: upload the iOS build to TestFlight and add VITE_IOS_TESTFLIGHT_URL before deployment."}</small>
+      </section>
+
+      <section className="panel">
+        <h2>Supported devices</h2>
+        <div className="install-checklist">
+          <span>iPhone Pro with LiDAR, iPhone 12 Pro or newer Pro models</span>
+          <span>Camera and motion permissions enabled</span>
+          <span>Operator has a CargoScan user account</span>
+          <span>Backend API points to Render production</span>
+        </div>
+      </section>
+
+      <section className="panel">
+        <h2>Install flow</h2>
+        <div className="install-steps">
+          <span>1. Admin opens this dashboard page.</span>
+          <span>2. Operator scans the QR code.</span>
+          <span>3. TestFlight installs CargoScan Mobile.</span>
+          <span>4. Operator logs in and scans linked cargo items.</span>
+        </div>
+      </section>
+
+      <section className="panel wide">
+        <h2>Workspace install profile</h2>
+        <div className="cards three">
+          <article className="item-card">
+            <strong>{session.organization?.name || "CargoScan"}</strong>
+            <span>Tenant workspace</span>
+          </article>
+          <article className="item-card">
+            <strong>{session.organization?.plan || "TRIAL"}</strong>
+            <span>Current plan</span>
+          </article>
+          <article className="item-card">
+            <strong>iOS Pilot</strong>
+            <span>{installUrl ? "Ready for operator install" : "Waiting for TestFlight link"}</span>
+          </article>
+        </div>
+      </section>
+    </div>
+  );
+}
+
 function BillingTab({ organization, setMessage }) {
   async function upgrade(plan) {
     const result = await api("/billing/init", { method: "POST", body: JSON.stringify({ plan }) });
@@ -775,7 +853,7 @@ function Dashboard({ session, setSession }) {
       </section>
 
       <nav className="tabs">
-        {["shipments", "containers", "customers", "team", "developers", "billing"].map((tab) => (
+        {["shipments", "containers", "customers", "mobile app", "team", "developers", "billing"].map((tab) => (
           <button key={tab} className={active === tab ? "active" : ""} disabled={!isAdmin && ["team", "developers", "billing"].includes(tab)} onClick={() => setActive(tab)}>
             {tab}
           </button>
@@ -788,6 +866,7 @@ function Dashboard({ session, setSession }) {
       {active === "shipments" && <ShipmentsTab data={data} reload={load} setMessage={setMessage} />}
       {active === "containers" && <ContainersTab data={data} reload={load} setMessage={setMessage} setError={setError} />}
       {active === "customers" && <CustomersTab data={data} reload={load} setMessage={setMessage} />}
+      {active === "mobile app" && <MobileAppTab session={session} />}
       {active === "team" && isAdmin && <TeamTab data={data} reload={load} setMessage={setMessage} />}
       {active === "developers" && isAdmin && <DevelopersTab data={data} reload={load} setMessage={setMessage} />}
       {active === "billing" && isAdmin && <BillingTab organization={session.organization} setMessage={setMessage} />}

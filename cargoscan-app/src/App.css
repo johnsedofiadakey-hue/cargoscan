@@ -570,6 +570,119 @@ th, td {
   font-size: 12px;
 }
 
+.install-grid {
+  align-items: stretch;
+}
+
+.install-hero-panel {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 18px;
+  align-items: center;
+  grid-column: 1 / -1;
+  background:
+    linear-gradient(135deg, rgba(15, 118, 110, 0.94), rgba(30, 64, 175, 0.92)),
+    #0f766e;
+  color: #ffffff;
+}
+
+.install-hero-panel p {
+  max-width: 760px;
+  color: rgba(255, 255, 255, 0.82);
+}
+
+.section-kicker {
+  display: inline-flex;
+  margin-bottom: 8px;
+  color: #ccfbf1;
+  font-size: 12px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.install-status-row {
+  display: grid;
+  gap: 8px;
+  min-width: 190px;
+  padding: 14px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.12);
+  font-weight: 800;
+  font-size: 13px;
+}
+
+.status-dot {
+  width: 9px;
+  height: 9px;
+  display: inline-block;
+  border-radius: 50%;
+  margin-right: 6px;
+}
+
+.status-dot.live {
+  background: #22c55e;
+}
+
+.status-dot.pending {
+  background: #f59e0b;
+}
+
+.qr-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.qr-code,
+.qr-placeholder {
+  width: 220px;
+  max-width: 100%;
+  aspect-ratio: 1;
+  align-self: center;
+  border-radius: 8px;
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+}
+
+.qr-placeholder {
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  text-align: center;
+  color: #475569;
+  background:
+    linear-gradient(90deg, #e2e8f0 10px, transparent 10px) 0 0 / 32px 32px,
+    linear-gradient(#e2e8f0 10px, transparent 10px) 0 0 / 32px 32px,
+    #f8fafc;
+}
+
+.qr-placeholder span {
+  width: 72px;
+  height: 72px;
+  display: block;
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.75);
+}
+
+.install-link {
+  text-align: center;
+}
+
+.install-checklist,
+.install-steps {
+  display: grid;
+  gap: 10px;
+  color: #334155;
+  font-size: 14px;
+}
+
+.install-checklist span,
+.install-steps span {
+  padding: 10px;
+  border-radius: 6px;
+  background: #f8fafc;
+}
+
 .check-row {
   display: flex;
   align-items: center;
@@ -621,6 +734,10 @@ th, td {
   }
 
   .metrics, .tab-grid, .cards.two, .cards.three {
+    grid-template-columns: 1fr;
+  }
+
+  .install-hero-panel {
     grid-template-columns: 1fr;
   }
 }
