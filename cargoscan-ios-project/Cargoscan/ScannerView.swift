@@ -266,7 +266,9 @@ struct ScannerView: View {
         }
         .padding(.horizontal, 4)
         .padding(.vertical, 6)
-        .background(.black.opacity(0.65), in: RoundedRectangle(cornerRadius: 14))
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16))
+        .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.white.opacity(0.15), lineWidth: 1))
+        .shadow(color: .black.opacity(0.3), radius: 8, y: 4)
     }
 
     private func workflowStepIndex(_ phase: ScanPhase) -> Int {
@@ -321,7 +323,9 @@ struct ScannerView: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
-        .background(.black.opacity(0.80), in: RoundedRectangle(cornerRadius: 22))
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 22))
+        .overlay(RoundedRectangle(cornerRadius: 22).stroke(Color.white.opacity(0.15), lineWidth: 1))
+        .shadow(color: .cyan.opacity(0.15), radius: 10, y: 5)
         .frame(maxWidth: 260, alignment: .leading)
     }
 
@@ -348,7 +352,8 @@ struct ScannerView: View {
             }
         }
         .padding(12)
-        .background(.black.opacity(0.72), in: RoundedRectangle(cornerRadius: 16))
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16))
+        .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.white.opacity(0.15), lineWidth: 1))
     }
 
     private var distanceBadge: some View {
@@ -362,7 +367,8 @@ struct ScannerView: View {
         }
         .padding(.horizontal, 11)
         .padding(.vertical, 7)
-        .background(.black.opacity(0.78), in: RoundedRectangle(cornerRadius: 11))
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.white.opacity(0.15), lineWidth: 1))
     }
 
     private var tiltBadge: some View {
@@ -376,7 +382,8 @@ struct ScannerView: View {
         }
         .padding(.horizontal, 11)
         .padding(.vertical, 6)
-        .background(.black.opacity(0.78), in: RoundedRectangle(cornerRadius: 11))
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.white.opacity(0.15), lineWidth: 1))
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -859,8 +866,10 @@ private struct BottomCard<Content: View>: View {
     @ViewBuilder let content: Content
     var body: some View {
         VStack { content }
-            .padding(18)
-            .background(.black.opacity(0.82), in: RoundedRectangle(cornerRadius: 20))
+            .padding(20)
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 24))
+            .overlay(RoundedRectangle(cornerRadius: 24).stroke(Color.white.opacity(0.15), lineWidth: 1))
+            .shadow(color: .black.opacity(0.4), radius: 20, y: 10)
             .padding(.horizontal, 16)
             .padding(.bottom, 40)
     }

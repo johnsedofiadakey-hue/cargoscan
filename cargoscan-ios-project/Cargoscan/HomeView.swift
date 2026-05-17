@@ -19,6 +19,7 @@ struct HomeView: View {
     @State private var isCreatingItem = false
     @State private var errorMessage = ""
     @State private var cbmRate: Double = 85.0
+    @State private var isAnimatingIcon = false
 
     private var selectedShipment: Shipment? {
         shipments.first { $0.id == selectedShipmentId }
@@ -30,158 +31,217 @@ struct HomeView: View {
     
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(spacing: 24) {
-                // Header
-                VStack(spacing: 8) {
-                    Image(systemName: "cube.box.fill")
-                        .font(.system(size: 60))
-                        .foregroundColor(.cyan)
-                    Text("CargoScan LiDAR")
-                        .font(.system(size: 28, weight: .black))
-                    Text("Professional AR Measurement")
-                        .font(.system(size: 14))
-                        .foregroundColor(.secondary)
-                }
-                .padding(.top, 40)
-
-                if isLoading {
-                    ProgressView("Loading shipments...")
-                        .padding(.vertical, 20)
-                }
-
-                if !errorMessage.isEmpty {
-                    Text(errorMessage)
-                        .font(.footnote)
-                        .foregroundColor(.red)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 24)
-                }
-
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("Shipment")
-                        .font(.system(size: 13, weight: .bold))
-                        .foregroundColor(.secondary)
-
-                    Picker("Shipment", selection: $selectedShipmentId) {
-                        Text("Select shipment").tag("")
-                        ForEach(shipments) { shipment in
-                            Text(shipment.code).tag(shipment.id)
+            ZStack {
+                // Premium Dark/Glassmorphic Background
+                Color.black.ignoresSafeArea()
+                
+                // Subtle glowing orbs in background
+                Circle()
+                    .fill(Color.cyan.opacity(0.15))
+                    .frame(width: 300, height: 300)
+                    .blur(radius: 60)
+                    .offset(x: -100, y: -200)
+                
+                Circle()
+                    .fill(Color.indigo.opacity(0.15))
+                    .frame(width: 300, height: 300)
+                    .blur(radius: 60)
+                    .offset(x: 150, y: 300)
+                
+                ScrollView {
+                    VStack(spacing: 28) {
+                        // Header
+                        VStack(spacing: 12) {
+                            Image(systemName: "cube.transparent.fill")
+                                .font(.system(size: 64, weight: .light))
+                                .foregroundStyle(
+                                    LinearGradient(colors: [.cyan, .indigo], startPoint: .topLeading, endPoint: .bottomTrailing)
+                                )
+                                .shadow(color: .cyan.opacity(0.4), radius: 10, x: 0, y: 5)
+                                .scaleEffect(isAnimatingIcon ? 1.05 : 1.0)
+                                .animation(.easeInOut(duration: 2.0).repeatForever(autoreverses: true), value: isAnimatingIcon)
+                                .onAppear { isAnimatingIcon = true }
+                            
+                            Text("CargoScan LiDAR")
+                                .font(.system(size: 32, weight: .black, design: .rounded))
+                                .foregroundColor(.white)
+                            
+                            Text("Professional AR Measurement")
+                                .font(.system(size: 15, weight: .medium, design: .rounded))
+                                .foregroundColor(.gray)
                         }
-                    }
-                    .pickerStyle(.menu)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding()
-                    .background(Color(UIColor.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 14))
-                    .onChange(of: selectedShipmentId) { _, newValue in
-                        selectedCargoItemId = ""
-                        if !newValue.isEmpty {
-                            Task { await loadItems(shipmentId: newValue) }
-                        } else {
-                            items = []
+                        .padding(.top, 40)
+                        
+                        if isLoading {
+                            ProgressView()
+                                .tint(.cyan)
+                                .scaleEffect(1.2)
+                                .padding(.vertical, 20)
                         }
-                    }
-
-                    if let selectedShipment {
-                        Text("\(selectedShipment.from ?? "Origin") → \(selectedShipment.to ?? "Destination")")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                }
-                .padding(.horizontal, 24)
-
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("Cargo Item")
-                        .font(.system(size: 13, weight: .bold))
-                        .foregroundColor(.secondary)
-
-                    Picker("Cargo Item", selection: $selectedCargoItemId) {
-                        Text(items.isEmpty ? "No items yet" : "Select item").tag("")
-                        ForEach(items) { item in
-                            Text(item.description?.isEmpty == false ? item.description! : shortId(item.id))
-                                .tag(item.id)
+                        
+                        if !errorMessage.isEmpty {
+                            Text(errorMessage)
+                                .font(.footnote)
+                                .foregroundColor(.red)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.horizontal, 24)
                         }
-                    }
-                    .pickerStyle(.menu)
-                    .disabled(selectedShipmentId.isEmpty)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding()
-                    .background(Color(UIColor.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 14))
-
-                    TextField("New item label, optional", text: $newItemDescription)
-                        .textFieldStyle(.roundedBorder)
-                        .disabled(selectedShipmentId.isEmpty)
-
-                    Button(action: createItem) {
-                        HStack {
-                            if isCreatingItem {
-                                ProgressView()
+                        
+                        // Shipment Selection Card
+                        VStack(alignment: .leading, spacing: 16) {
+                            Text("Shipment Details")
+                                .font(.system(size: 14, weight: .bold, design: .rounded))
+                                .foregroundColor(.gray)
+                                .textCase(.uppercase)
+                            
+                            VStack(spacing: 0) {
+                                Picker("Shipment", selection: $selectedShipmentId) {
+                                    Text("Select shipment").tag("")
+                                    ForEach(shipments) { shipment in
+                                        Text(shipment.code).tag(shipment.id)
+                                    }
+                                }
+                                .pickerStyle(.menu)
+                                .tint(.white)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding()
+                                .background(Color.white.opacity(0.05))
+                                .onChange(of: selectedShipmentId) { _, newValue in
+                                    selectedCargoItemId = ""
+                                    if !newValue.isEmpty {
+                                        Task { await loadItems(shipmentId: newValue) }
+                                    } else {
+                                        items = []
+                                    }
+                                }
+                                
+                                if let selectedShipment {
+                                    Divider().background(Color.white.opacity(0.1))
+                                    HStack {
+                                        Image(systemName: "arrow.left.arrow.right")
+                                            .foregroundColor(.cyan)
+                                        Text("\(selectedShipment.from ?? "Origin") → \(selectedShipment.to ?? "Destination")")
+                                            .font(.caption.bold())
+                                            .foregroundColor(.white)
+                                    }
+                                    .padding()
+                                }
                             }
-                            Label("Create Item For Scan", systemImage: "plus.square")
+                            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16))
+                            .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.white.opacity(0.1), lineWidth: 1))
                         }
-                        .font(.system(size: 15, weight: .bold))
-                        .frame(maxWidth: .infinity, minHeight: 48)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(selectedShipmentId.isEmpty || isCreatingItem)
-
-                    if let selectedItem {
-                        Text("Selected: \(shortId(selectedItem.id))")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                }
-                .padding(.horizontal, 24)
-                
-                // Action Buttons
-                VStack(spacing: 16) {
-                    // Linked Scan
-                    Button(action: {
-                        if !selectedCargoItemId.isEmpty {
-                            showingLinkedScan = true
+                        .padding(.horizontal, 24)
+                        
+                        // Cargo Item Selection Card
+                        VStack(alignment: .leading, spacing: 16) {
+                            Text("Package Assignment")
+                                .font(.system(size: 14, weight: .bold, design: .rounded))
+                                .foregroundColor(.gray)
+                                .textCase(.uppercase)
+                            
+                            VStack(spacing: 16) {
+                                Picker("Cargo Item", selection: $selectedCargoItemId) {
+                                    Text(items.isEmpty ? "No items yet" : "Select item").tag("")
+                                    ForEach(items) { item in
+                                        Text(item.description?.isEmpty == false ? item.description! : shortId(item.id))
+                                            .tag(item.id)
+                                    }
+                                }
+                                .pickerStyle(.menu)
+                                .tint(.white)
+                                .disabled(selectedShipmentId.isEmpty)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding()
+                                .background(Color.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 12))
+                                
+                                TextField("New item label, optional", text: $newItemDescription)
+                                    .padding()
+                                    .background(Color.black.opacity(0.4), in: RoundedRectangle(cornerRadius: 12))
+                                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.white.opacity(0.1), lineWidth: 1))
+                                    .foregroundColor(.white)
+                                    .disabled(selectedShipmentId.isEmpty)
+                                
+                                Button(action: createItem) {
+                                    HStack {
+                                        if isCreatingItem {
+                                            ProgressView().tint(.white).padding(.trailing, 4)
+                                        }
+                                        Label("Create Item", systemImage: "plus")
+                                    }
+                                    .font(.system(size: 16, weight: .bold, design: .rounded))
+                                    .foregroundColor(.white)
+                                    .frame(maxWidth: .infinity, minHeight: 50)
+                                    .background(Color.white.opacity(0.1), in: RoundedRectangle(cornerRadius: 12))
+                                }
+                                .disabled(selectedShipmentId.isEmpty || isCreatingItem)
+                            }
+                            .padding(16)
+                            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16))
+                            .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.white.opacity(0.1), lineWidth: 1))
                         }
-                    }) {
-                        Label("Linked Scan", systemImage: "link")
-                            .font(.system(size: 17, weight: .bold))
-                            .foregroundColor(.white)
-                            .frame(maxWidth: .infinity, minHeight: 56)
-                            .background(selectedCargoItemId.isEmpty ? Color.gray : Color.blue, in: RoundedRectangle(cornerRadius: 14))
+                        .padding(.horizontal, 24)
+                        
+                        // Action Buttons
+                        VStack(spacing: 16) {
+                            Button(action: {
+                                if !selectedCargoItemId.isEmpty {
+                                    let impact = UIImpactFeedbackGenerator(style: .medium)
+                                    impact.impactOccurred()
+                                    showingLinkedScan = true
+                                }
+                            }) {
+                                HStack {
+                                    Image(systemName: "viewfinder")
+                                    Text("Begin LiDAR Scan")
+                                }
+                                .font(.system(size: 18, weight: .bold, design: .rounded))
+                                .foregroundColor(selectedCargoItemId.isEmpty ? .gray : .black)
+                                .frame(maxWidth: .infinity, minHeight: 60)
+                                .background(
+                                    selectedCargoItemId.isEmpty ? Color.white.opacity(0.1) : Color.cyan,
+                                    in: RoundedRectangle(cornerRadius: 16)
+                                )
+                                .shadow(color: selectedCargoItemId.isEmpty ? .clear : .cyan.opacity(0.4), radius: 10, y: 5)
+                            }
+                            .disabled(selectedCargoItemId.isEmpty)
+                            .navigationDestination(isPresented: $showingLinkedScan) {
+                                ScannerView(cbmRate: cbmRate, cargoItemId: selectedCargoItemId)
+                                    .navigationBarBackButtonHidden(true)
+                                    .ignoresSafeArea()
+                            }
+                            
+                            Button(action: {
+                                let impact = UIImpactFeedbackGenerator(style: .light)
+                                impact.impactOccurred()
+                                showingQuickScan = true
+                            }) {
+                                HStack {
+                                    Image(systemName: "bolt.fill")
+                                    Text("Quick Test Scan")
+                                }
+                                .font(.system(size: 16, weight: .bold, design: .rounded))
+                                .foregroundColor(.white)
+                                .frame(maxWidth: .infinity, minHeight: 56)
+                                .background(Color.white.opacity(0.1), in: RoundedRectangle(cornerRadius: 16))
+                            }
+                            .navigationDestination(isPresented: $showingQuickScan) {
+                                ScannerView(cbmRate: cbmRate, cargoItemId: nil)
+                                    .navigationBarBackButtonHidden(true)
+                                    .ignoresSafeArea()
+                            }
+                        }
+                        .padding(.horizontal, 24)
+                        .padding(.top, 10)
+                        
+                        Spacer(minLength: 40)
+                        
+                        Text("CBM Rate: $\(String(format: "%.2f", cbmRate)) / m³")
+                            .font(.system(size: 12, weight: .medium, design: .monospaced))
+                            .foregroundColor(.gray)
+                            .padding(.bottom, 20)
                     }
-                    .disabled(selectedCargoItemId.isEmpty)
-                    .navigationDestination(isPresented: $showingLinkedScan) {
-                        ScannerView(cbmRate: cbmRate, cargoItemId: selectedCargoItemId)
-                            .navigationBarBackButtonHidden(true)
-                            .ignoresSafeArea()
-                    }
-                    
-                    // Quick Scan is intentionally view-only for the pilot until the app can create cargo items.
-                    Button(action: {
-                        showingQuickScan = true
-                    }) {
-                        Label("Quick Scan", systemImage: "bolt.fill")
-                            .font(.system(size: 17, weight: .bold))
-                            .foregroundColor(.black)
-                            .frame(maxWidth: .infinity, minHeight: 56)
-                            .background(Color.yellow, in: RoundedRectangle(cornerRadius: 14))
-                    }
-                    .navigationDestination(isPresented: $showingQuickScan) {
-                        ScannerView(cbmRate: cbmRate, cargoItemId: nil)
-                            .navigationBarBackButtonHidden(true)
-                            .ignoresSafeArea()
-                    }
-                }
-                .padding(.horizontal, 24)
-                
-                Spacer()
-                
-                // Settings summary
-                Text("Using CBM Rate: $\(String(format: "%.2f", cbmRate)) / m³")
-                    .font(.footnote)
-                    .foregroundColor(.secondary)
-                    .padding(.bottom, 20)
                 }
             }
-            .background(Color(UIColor.systemGroupedBackground).ignoresSafeArea())
             .task {
                 await loadShipments()
             }
@@ -189,6 +249,7 @@ struct HomeView: View {
                 await loadShipments()
             }
         }
+        .preferredColorScheme(.dark)
     }
 
     private func loadShipments() async {
@@ -243,6 +304,9 @@ struct HomeView: View {
                     description: newItemDescription
                 )
                 await MainActor.run {
+                    let impact = UINotificationFeedbackGenerator()
+                    impact.notificationOccurred(.success)
+                    
                     items.insert(item, at: 0)
                     selectedCargoItemId = item.id
                     newItemDescription = ""
@@ -250,6 +314,9 @@ struct HomeView: View {
                 }
             } catch {
                 await MainActor.run {
+                    let impact = UINotificationFeedbackGenerator()
+                    impact.notificationOccurred(.error)
+                    
                     errorMessage = "Could not create item: \(error.localizedDescription)"
                     isCreatingItem = false
                 }
