@@ -163,7 +163,17 @@ function Login({ onLogin }) {
     setLoading(true);
     setError("");
     try {
-      const payload = mode === "login" ? login : signup;
+      const payload = mode === "login"
+        ? login
+        : {
+            fullName: signup.name,
+            companyName: signup.company,
+            email: signup.email,
+            password: signup.password,
+            country: signup.country,
+            city: signup.city,
+            cbmRate: signup.cbmRate,
+          };
       const data = await api(`/auth/${mode === "login" ? "login" : "signup"}`, {
         method: "POST",
         body: JSON.stringify(payload),
