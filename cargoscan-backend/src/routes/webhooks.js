@@ -1,11 +1,49 @@
 const express = require("express");
 const router = express.Router();
-const { PrismaClient } = require("@prisma/client");
 const crypto = require("crypto");
 const { authenticateToken, requireRole } = require("../middleware/auth");
 const { checkWebhookLimit } = require("../middleware/plan");
 
-const prisma = new PrismaClient();
+const prisma = require("../lib/prisma");
+const ALLOWED_EVENTS = new Set([
+  "*",
+  "scan.created",
+  "item.created",
+  "item.updated",
+  "shipment.status_changed",
+  "shipment.sealed",
+  "shipment.in_transit",
+  "shipment.arrived",
+  "shipment.delivered",
+  "dispute.opened",
+  "dispute.resolved",
+]);
+
+function normalizeEvents(events) {
+  const list = Array.isArray(events) ? events : String(events || "").split(",");
+  return [...new Set(list.map((event) => event.trim()).filter(Boolean))];
+}
+
+function isPrivateWebhookHost(hostname) {
+  const host = hostname.toLowerCase();
+  if (host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local")) return true;
+  if (host === "::1" || host === "[::1]" || host === "0.0.0.0") return true;
+  if (/^127\./.test(host) || /^10\./.test(host) || /^192\.168\./.test(host) || /^169\.254\./.test(host)) return true;
+  const match = host.match(/^172\.(\d+)\./);
+  return Boolean(match && Number(match[1]) >= 16 && Number(match[1]) <= 31);
+}
+
+function validateWebhookUrl(value) {
+  try {
+    const parsed = new URL(value);
+    if (!["https:", "http:"].includes(parsed.protocol)) return "Webhook URL must use http or https";
+    if (process.env.NODE_ENV === "production" && parsed.protocol !== "https:") return "Production webhook URLs must use https";
+    if (isPrivateWebhookHost(parsed.hostname)) return "Webhook URL cannot target localhost or private network hosts";
+    return null;
+  } catch (err) {
+    return "Webhook URL is invalid";
+  }
+}
 
 // List webhooks
 router.get("/", authenticateToken, requireRole(["ADMIN"]), async (req, res) => {
@@ -29,7 +67,15 @@ router.post("/", authenticateToken, requireRole(["ADMIN"]), checkWebhookLimit, a
   if (!name || !url || !rawEvents) {
     return res.status(400).json({ error: "Missing required fields: name, url, events" });
   }
-  const eventFilter = Array.isArray(rawEvents) ? rawEvents.join(",") : rawEvents;
+  const urlError = validateWebhookUrl(url);
+  if (urlError) return res.status(400).json({ error: urlError });
+
+  const events = normalizeEvents(rawEvents);
+  const invalidEvents = events.filter((event) => !ALLOWED_EVENTS.has(event));
+  if (!events.length || invalidEvents.length) {
+    return res.status(400).json({ error: "Invalid webhook events", invalidEvents, allowedEvents: [...ALLOWED_EVENTS] });
+  }
+  const eventFilter = events.join(",");
 
   try {
     const signingSecret = crypto.randomBytes(32).toString("hex");

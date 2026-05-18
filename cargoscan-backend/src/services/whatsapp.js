@@ -1,8 +1,7 @@
-const { PrismaClient } = require("@prisma/client");
 const eventBus = require("../lib/events");
 const { LIMITS } = require("../lib/planLimits");
 
-const prisma = new PrismaClient();
+const prisma = require("../lib/prisma");
 
 // Template parameter builders for Meta Cloud API
 const TEMPLATE_PARAMS = {

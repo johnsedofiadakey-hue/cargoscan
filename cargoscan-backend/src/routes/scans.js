@@ -1,6 +1,5 @@
 const express = require("express");
 const { z } = require("zod");
-const { PrismaClient } = require("@prisma/client");
 const { authenticateToken } = require("../middleware/auth");
 const { authenticateEither } = require("../middleware/either");
 const storage = require("../services/storage");
@@ -14,16 +13,17 @@ const fs = require("fs");
 const path = require("path");
 
 const router = express.Router();
-const prisma = new PrismaClient();
+const prisma = require("../lib/prisma");
 
 const scanSchema = z.object({
   cargoItemId: z.string().uuid(),
   length: z.number().positive().max(2000), // Max 20 meters just in case
   width: z.number().positive().max(2000),
   height: z.number().positive().max(2000),
-  cbm: z.number().nonnegative().max(100),
+  cbm: z.number().nonnegative().max(100).optional(),
   confidence: z.number().min(0).max(1),
   scannerDevice: z.string().min(1),
+  source: z.string().min(1).max(32).optional(),
   photoUrl: z.string().url().optional().nullable(),
   qualityStatus: z.enum(["PASS", "REVIEW", "RESCAN"]).optional(),
   qualityScore: z.number().min(0).max(1).optional(),
@@ -54,6 +54,15 @@ const qualitySchema = z.object({
   message: "imageBase64 or imageUrl is required",
 });
 
+const statusForScanQuality = ({ qualityStatus, confidence }) => {
+  if (qualityStatus === "RESCAN") return "RESCAN_REQUIRED";
+  if (qualityStatus === "REVIEW") return "NEEDS_REVIEW";
+  if (qualityStatus === "PASS") return "READY_TO_LOAD";
+  if (confidence >= 0.9) return "READY_TO_LOAD";
+  if (confidence >= 0.75) return "NEEDS_REVIEW";
+  return "RESCAN_REQUIRED";
+};
+
 // Serve local uploads before dynamic scan routes so /uploads/:key is public in dev.
 router.get("/uploads/:key", (req, res) => {
   const filePath = path.join(__dirname, "../../uploads", path.basename(req.params.key));
@@ -68,7 +77,7 @@ router.post("/quality-check", authenticateToken, async (req, res) => {
     res.json(result);
   } catch (err) {
     if (err instanceof z.ZodError) {
-      return res.status(400).json({ error: "Validation Error", details: err.errors });
+      return res.status(400).json({ error: "Validation Error", details: err.issues });
     }
     console.error("[ScanQuality] Request failed:", err);
     res.status(500).json({ error: "Failed to check scan quality" });
@@ -84,9 +93,10 @@ router.post("/", authenticateEither, rateLimiter, async (req, res) => {
       length,
       width,
       height,
-      cbm,
+      cbm: providedCbm,
       confidence,
       scannerDevice,
+      source,
       photoUrl,
       qualityStatus,
       qualityScore,
@@ -101,14 +111,17 @@ router.post("/", authenticateEither, rateLimiter, async (req, res) => {
 
     if (!cargoItem) return res.status(404).json({ error: "Cargo Item not found" });
 
-    const scanSource = req.body.source || (req.apiKey ? "API" : "LIDAR");
+    const calculatedCbm = (length * width * height) / 1000000;
+    const cbm = providedCbm ?? calculatedCbm;
+    const nextStatus = statusForScanQuality({ qualityStatus, confidence });
+    const scanSource = source || (req.apiKey ? "API" : "LIDAR");
     const scan = await prisma.scanResult.create({
       data: {
-        length: parseFloat(length),
-        width: parseFloat(width),
-        height: parseFloat(height),
-        cbm: parseFloat(cbm),
-        confidence: parseFloat(confidence),
+        length,
+        width,
+        height,
+        cbm,
+        confidence,
         scannerDevice,
         photoUrl,
         operatorId: req.user ? req.user.id : null,
@@ -126,22 +139,22 @@ router.post("/", authenticateEither, rateLimiter, async (req, res) => {
     await prisma.cargoItem.update({
       where: { id: cargoItem.id },
       data: {
-        length: parseFloat(length),
-        width: parseFloat(width),
-        height: parseFloat(height),
-        cbm: parseFloat(cbm),
-        scanConfidence: parseFloat(confidence),
-        status: "SCANNED"
+        length,
+        width,
+        height,
+        cbm,
+        scanConfidence: confidence,
+        status: nextStatus,
       }
     });
 
     // Evaluate disputes
-    await disputes.evaluate(cargoItem.id, parseFloat(cbm), scan.id, req.org.id);
+    await disputes.evaluate(cargoItem.id, cbm, scan.id, req.org.id);
 
     // Create Scan Certificate
     const certificate = await scanCertificate.issue({
       cargoItemId,
-      payload: { length, width, height, cbm, confidence, scannerDevice },
+      payload: { length, width, height, cbm, confidence, scannerDevice, qualityStatus, nextStatus },
     });
 
     // Write Audit Log
@@ -151,7 +164,7 @@ router.post("/", authenticateEither, rateLimiter, async (req, res) => {
       action: "CREATE",
       target: "SCAN",
       targetId: scan.id,
-      details: { cargoItemId, cbm },
+      details: { cargoItemId, cbm, status: nextStatus, qualityStatus },
     });
 
     // Emit Event
@@ -162,15 +175,16 @@ router.post("/", authenticateEither, rateLimiter, async (req, res) => {
       certificateUrl: `/api/tracking/_verify/${certificate.hash}`,
       consigneePhone: cargoItem.consignee?.phone,
       consigneeName: cargoItem.consignee?.name,
-      trackingCode: cargoItem.id,
+      trackingCode: cargoItem.trackingCode,
       dimensions: `${length}x${width}x${height} cm`,
       cbm,
+      status: nextStatus,
     });
 
-    res.status(201).json({ ...scan, certificate });
+    res.status(201).json({ ...scan, itemStatus: nextStatus, certificate });
   } catch (err) {
     if (err instanceof z.ZodError) {
-      return res.status(400).json({ error: "Validation Error", details: err.errors });
+      return res.status(400).json({ error: "Validation Error", details: err.issues });
     }
     console.error(err);
     res.status(500).json({ error: "Failed to save scan result" });

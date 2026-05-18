@@ -1,9 +1,8 @@
 const express = require("express");
 const router = express.Router();
-const { PrismaClient } = require("@prisma/client");
 const { authenticateEither } = require("../middleware/either");
 
-const prisma = new PrismaClient();
+const prisma = require("../lib/prisma");
 
 // List consignees
 router.get("/", authenticateEither, async (req, res) => {

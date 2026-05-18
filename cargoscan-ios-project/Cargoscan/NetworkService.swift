@@ -34,10 +34,10 @@ struct ScanQualityResult: Codable {
 
 struct CargoItem: Codable, Identifiable {
     let id: String
-    let length: Float
-    let width: Float
-    let height: Float
-    let cbm: Float
+    let length: Float?
+    let width: Float?
+    let height: Float?
+    let cbm: Float?
     let status: String?
     let description: String?
     let shipmentId: String
@@ -330,9 +330,6 @@ class NetworkService {
 
         let body: [String: Any] = [
             "shipmentId": shipmentId,
-            "length": 1,
-            "width": 1,
-            "height": 1,
             "description": description?.isEmpty == false ? description! : "Created from iPhone scan"
         ]
         request.httpBody = try JSONSerialization.data(withJSONObject: body)

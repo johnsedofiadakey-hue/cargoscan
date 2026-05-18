@@ -19,7 +19,6 @@ struct HomeView: View {
     @State private var isCreatingItem = false
     @State private var errorMessage = ""
     @State private var cbmRate: Double = 85.0
-    @State private var isAnimatingIcon = false
 
     private var selectedShipment: Shipment? {
         shipments.first { $0.id == selectedShipmentId }
@@ -32,197 +31,155 @@ struct HomeView: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                // Premium Dark/Glassmorphic Background
-                Color.black.ignoresSafeArea()
-                
-                // Subtle glowing orbs in background
-                Circle()
-                    .fill(Color.cyan.opacity(0.15))
-                    .frame(width: 300, height: 300)
-                    .blur(radius: 60)
-                    .offset(x: -100, y: -200)
-                
-                Circle()
-                    .fill(Color.indigo.opacity(0.15))
-                    .frame(width: 300, height: 300)
-                    .blur(radius: 60)
-                    .offset(x: 150, y: 300)
-                
+                LinearGradient(
+                    colors: [
+                        Color(red: 0.94, green: 0.97, blue: 0.99),
+                        Color(red: 0.86, green: 0.91, blue: 0.97)
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+                .ignoresSafeArea()
+
                 ScrollView {
-                    VStack(spacing: 28) {
-                        // Header
-                        VStack(spacing: 12) {
-                            Image(systemName: "cube.transparent.fill")
-                                .font(.system(size: 64, weight: .light))
-                                .foregroundStyle(
-                                    LinearGradient(colors: [.cyan, .indigo], startPoint: .topLeading, endPoint: .bottomTrailing)
-                                )
-                                .shadow(color: .cyan.opacity(0.4), radius: 10, x: 0, y: 5)
-                                .scaleEffect(isAnimatingIcon ? 1.05 : 1.0)
-                                .animation(.easeInOut(duration: 2.0).repeatForever(autoreverses: true), value: isAnimatingIcon)
-                                .onAppear { isAnimatingIcon = true }
-                            
-                            Text("CargoScan LiDAR")
-                                .font(.system(size: 32, weight: .black, design: .rounded))
-                                .foregroundColor(.white)
-                            
-                            Text("Professional AR Measurement")
-                                .font(.system(size: 15, weight: .medium, design: .rounded))
-                                .foregroundColor(.gray)
-                        }
-                        .padding(.top, 40)
-                        
+                    VStack(spacing: 16) {
+                        header
+
                         if isLoading {
                             ProgressView()
-                                .tint(.cyan)
-                                .scaleEffect(1.2)
-                                .padding(.vertical, 20)
+                                .tint(Color(red: 0.06, green: 0.46, blue: 0.42))
+                                .padding(.vertical, 10)
                         }
-                        
+
                         if !errorMessage.isEmpty {
                             Text(errorMessage)
-                                .font(.footnote)
-                                .foregroundColor(.red)
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundColor(Color(red: 0.72, green: 0.11, blue: 0.11))
                                 .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(.horizontal, 24)
+                                .padding(14)
+                                .background(Color(red: 1.0, green: 0.95, blue: 0.95), in: RoundedRectangle(cornerRadius: 10))
+                                .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.red.opacity(0.18), lineWidth: 1))
                         }
-                        
-                        // Shipment Selection Card
-                        VStack(alignment: .leading, spacing: 16) {
-                            Text("Shipment Details")
-                                .font(.system(size: 14, weight: .bold, design: .rounded))
-                                .foregroundColor(.gray)
-                                .textCase(.uppercase)
-                            
-                            VStack(spacing: 0) {
-                                Picker("Shipment", selection: $selectedShipmentId) {
-                                    Text("Select shipment").tag("")
-                                    ForEach(shipments) { shipment in
-                                        Text(shipment.code).tag(shipment.id)
-                                    }
-                                }
-                                .pickerStyle(.menu)
-                                .tint(.white)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding()
-                                .background(Color.white.opacity(0.05))
-                                .onChange(of: selectedShipmentId) { _, newValue in
-                                    selectedCargoItemId = ""
-                                    if !newValue.isEmpty {
-                                        Task { await loadItems(shipmentId: newValue) }
-                                    } else {
-                                        items = []
-                                    }
-                                }
-                                
-                                if let selectedShipment {
-                                    Divider().background(Color.white.opacity(0.1))
-                                    HStack {
-                                        Image(systemName: "arrow.left.arrow.right")
-                                            .foregroundColor(.cyan)
-                                        Text("\(selectedShipment.from ?? "Origin") → \(selectedShipment.to ?? "Destination")")
-                                            .font(.caption.bold())
-                                            .foregroundColor(.white)
-                                    }
-                                    .padding()
+
+                        VStack(alignment: .leading, spacing: 14) {
+                            cardTitle("Shipment", systemImage: "shippingbox")
+
+                            Picker("Shipment", selection: $selectedShipmentId) {
+                                Text("Select shipment").tag("")
+                                ForEach(shipments) { shipment in
+                                    Text(shipment.code).tag(shipment.id)
                                 }
                             }
-                            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16))
-                            .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.white.opacity(0.1), lineWidth: 1))
-                        }
-                        .padding(.horizontal, 24)
-                        
-                        // Cargo Item Selection Card
-                        VStack(alignment: .leading, spacing: 16) {
-                            Text("Package Assignment")
-                                .font(.system(size: 14, weight: .bold, design: .rounded))
-                                .foregroundColor(.gray)
-                                .textCase(.uppercase)
-                            
-                            VStack(spacing: 16) {
-                                Picker("Cargo Item", selection: $selectedCargoItemId) {
-                                    Text(items.isEmpty ? "No items yet" : "Select item").tag("")
-                                    ForEach(items) { item in
-                                        Text(item.description?.isEmpty == false ? item.description! : shortId(item.id))
-                                            .tag(item.id)
-                                    }
+                            .pickerStyle(.menu)
+                            .tint(Color(red: 0.06, green: 0.46, blue: 0.42))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(14)
+                            .background(Color(red: 0.97, green: 0.98, blue: 1.0), in: RoundedRectangle(cornerRadius: 10))
+                            .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.black.opacity(0.07), lineWidth: 1))
+                            .onChange(of: selectedShipmentId) { _, newValue in
+                                selectedCargoItemId = ""
+                                if !newValue.isEmpty {
+                                    Task { await loadItems(shipmentId: newValue) }
+                                } else {
+                                    items = []
                                 }
-                                .pickerStyle(.menu)
-                                .tint(.white)
+                            }
+
+                            if let selectedShipment {
+                                HStack(spacing: 10) {
+                                    Image(systemName: "arrow.left.arrow.right")
+                                        .foregroundColor(Color(red: 0.06, green: 0.46, blue: 0.42))
+                                    Text("\(selectedShipment.from ?? "Origin") to \(selectedShipment.to ?? "Destination")")
+                                        .font(.system(size: 13, weight: .bold))
+                                        .foregroundColor(Color(red: 0.26, green: 0.32, blue: 0.39))
+                                    Spacer()
+                                }
+                                .padding(12)
+                                .background(Color(red: 0.91, green: 0.97, blue: 0.96), in: RoundedRectangle(cornerRadius: 10))
+                            }
+                        }
+                        .cardSurface()
+
+                        VStack(alignment: .leading, spacing: 14) {
+                            cardTitle("Package", systemImage: "cube.box")
+
+                            Picker("Cargo Item", selection: $selectedCargoItemId) {
+                                Text(items.isEmpty ? "No packages yet" : "Select package").tag("")
+                                ForEach(items) { item in
+                                    Text(item.description?.isEmpty == false ? item.description! : shortId(item.id))
+                                        .tag(item.id)
+                                }
+                            }
+                            .pickerStyle(.menu)
+                            .tint(Color(red: 0.06, green: 0.46, blue: 0.42))
+                            .disabled(selectedShipmentId.isEmpty)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(14)
+                            .background(Color(red: 0.97, green: 0.98, blue: 1.0), in: RoundedRectangle(cornerRadius: 10))
+                            .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.black.opacity(0.07), lineWidth: 1))
+
+                            TextField("Create package label, optional", text: $newItemDescription)
+                                .font(.system(size: 15, weight: .semibold))
+                                .padding(14)
+                                .background(Color(red: 0.97, green: 0.98, blue: 1.0), in: RoundedRectangle(cornerRadius: 10))
+                                .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.black.opacity(0.07), lineWidth: 1))
                                 .disabled(selectedShipmentId.isEmpty)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding()
-                                .background(Color.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 12))
-                                
-                                TextField("New item label, optional", text: $newItemDescription)
-                                    .padding()
-                                    .background(Color.black.opacity(0.4), in: RoundedRectangle(cornerRadius: 12))
-                                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.white.opacity(0.1), lineWidth: 1))
-                                    .foregroundColor(.white)
-                                    .disabled(selectedShipmentId.isEmpty)
-                                
-                                Button(action: createItem) {
-                                    HStack {
-                                        if isCreatingItem {
-                                            ProgressView().tint(.white).padding(.trailing, 4)
-                                        }
-                                        Label("Create Item", systemImage: "plus")
+
+                            Button(action: createItem) {
+                                HStack(spacing: 9) {
+                                    if isCreatingItem {
+                                        ProgressView().tint(.white)
                                     }
-                                    .font(.system(size: 16, weight: .bold, design: .rounded))
-                                    .foregroundColor(.white)
-                                    .frame(maxWidth: .infinity, minHeight: 50)
-                                    .background(Color.white.opacity(0.1), in: RoundedRectangle(cornerRadius: 12))
+                                    Label("Create package", systemImage: "plus")
                                 }
-                                .disabled(selectedShipmentId.isEmpty || isCreatingItem)
+                                .font(.system(size: 15, weight: .bold))
+                                .foregroundColor(.white)
+                                .frame(maxWidth: .infinity, minHeight: 48)
+                                .background(Color(red: 0.07, green: 0.10, blue: 0.15), in: RoundedRectangle(cornerRadius: 10))
                             }
-                            .padding(16)
-                            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16))
-                            .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.white.opacity(0.1), lineWidth: 1))
+                            .disabled(selectedShipmentId.isEmpty || isCreatingItem)
+                            .opacity(selectedShipmentId.isEmpty || isCreatingItem ? 0.52 : 1)
                         }
-                        .padding(.horizontal, 24)
-                        
-                        // Action Buttons
-                        VStack(spacing: 16) {
+                        .cardSurface()
+
+                        VStack(spacing: 10) {
                             Button(action: {
                                 if !selectedCargoItemId.isEmpty {
-                                    let impact = UIImpactFeedbackGenerator(style: .medium)
-                                    impact.impactOccurred()
+                                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
                                     showingLinkedScan = true
                                 }
                             }) {
                                 HStack {
                                     Image(systemName: "viewfinder")
-                                    Text("Begin LiDAR Scan")
+                                    Text("Begin LiDAR scan")
                                 }
-                                .font(.system(size: 18, weight: .bold, design: .rounded))
-                                .foregroundColor(selectedCargoItemId.isEmpty ? .gray : .black)
-                                .frame(maxWidth: .infinity, minHeight: 60)
-                                .background(
-                                    selectedCargoItemId.isEmpty ? Color.white.opacity(0.1) : Color.cyan,
-                                    in: RoundedRectangle(cornerRadius: 16)
-                                )
-                                .shadow(color: selectedCargoItemId.isEmpty ? .clear : .cyan.opacity(0.4), radius: 10, y: 5)
+                                .font(.system(size: 17, weight: .black))
+                                .foregroundColor(.white)
+                                .frame(maxWidth: .infinity, minHeight: 58)
+                                .background(Color(red: 0.06, green: 0.46, blue: 0.42), in: RoundedRectangle(cornerRadius: 10))
+                                .shadow(color: Color(red: 0.06, green: 0.46, blue: 0.42).opacity(selectedCargoItemId.isEmpty ? 0 : 0.22), radius: 18, y: 10)
                             }
                             .disabled(selectedCargoItemId.isEmpty)
+                            .opacity(selectedCargoItemId.isEmpty ? 0.48 : 1)
                             .navigationDestination(isPresented: $showingLinkedScan) {
                                 ScannerView(cbmRate: cbmRate, cargoItemId: selectedCargoItemId)
                                     .navigationBarBackButtonHidden(true)
                                     .ignoresSafeArea()
                             }
-                            
+
                             Button(action: {
-                                let impact = UIImpactFeedbackGenerator(style: .light)
-                                impact.impactOccurred()
+                                UIImpactFeedbackGenerator(style: .light).impactOccurred()
                                 showingQuickScan = true
                             }) {
                                 HStack {
                                     Image(systemName: "bolt.fill")
-                                    Text("Quick Test Scan")
+                                    Text("Quick test scan")
                                 }
-                                .font(.system(size: 16, weight: .bold, design: .rounded))
-                                .foregroundColor(.white)
-                                .frame(maxWidth: .infinity, minHeight: 56)
-                                .background(Color.white.opacity(0.1), in: RoundedRectangle(cornerRadius: 16))
+                                .font(.system(size: 15, weight: .bold))
+                                .foregroundColor(Color(red: 0.07, green: 0.10, blue: 0.15))
+                                .frame(maxWidth: .infinity, minHeight: 50)
+                                .background(.white.opacity(0.92), in: RoundedRectangle(cornerRadius: 10))
+                                .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.black.opacity(0.07), lineWidth: 1))
                             }
                             .navigationDestination(isPresented: $showingQuickScan) {
                                 ScannerView(cbmRate: cbmRate, cargoItemId: nil)
@@ -230,16 +187,15 @@ struct HomeView: View {
                                     .ignoresSafeArea()
                             }
                         }
-                        .padding(.horizontal, 24)
-                        .padding(.top, 10)
-                        
-                        Spacer(minLength: 40)
-                        
-                        Text("CBM Rate: $\(String(format: "%.2f", cbmRate)) / m³")
-                            .font(.system(size: 12, weight: .medium, design: .monospaced))
-                            .foregroundColor(.gray)
-                            .padding(.bottom, 20)
+                        .padding(.top, 2)
+
+                        Text("CBM Rate: $\(String(format: "%.2f", cbmRate)) / m3")
+                            .font(.system(size: 12, weight: .bold, design: .monospaced))
+                            .foregroundColor(Color(red: 0.45, green: 0.51, blue: 0.58))
+                            .padding(.vertical, 14)
                     }
+                    .padding(.horizontal, 18)
+                    .padding(.bottom, 24)
                 }
             }
             .task {
@@ -249,7 +205,76 @@ struct HomeView: View {
                 await loadShipments()
             }
         }
-        .preferredColorScheme(.dark)
+        .preferredColorScheme(.light)
+    }
+
+    private var header: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            HStack {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 10)
+                        .fill(LinearGradient(colors: [Color(red: 0.06, green: 0.46, blue: 0.42), Color(red: 0.15, green: 0.39, blue: 0.92)], startPoint: .topLeading, endPoint: .bottomTrailing))
+                    Text("CS")
+                        .font(.system(size: 17, weight: .black))
+                        .foregroundColor(.white)
+                }
+                .frame(width: 44, height: 44)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("CargoScan")
+                        .font(.system(size: 17, weight: .black))
+                        .foregroundColor(.white)
+                    Text("Operator console")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundColor(.white.opacity(0.66))
+                }
+
+                Spacer()
+
+                Text("\(items.count) pkg")
+                    .font(.system(size: 12, weight: .black))
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 7)
+                    .background(.white.opacity(0.14), in: Capsule())
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Scan queue")
+                    .font(.system(size: 36, weight: .black, design: .rounded))
+                    .foregroundColor(.white)
+                    .tracking(-1)
+                Text("Choose a shipment package, capture dimensions, and send scan quality back to the warehouse dashboard.")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(.white.opacity(0.74))
+                    .lineSpacing(2)
+            }
+        }
+        .padding(.horizontal, 22)
+        .padding(.top, 52)
+        .padding(.bottom, 28)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            LinearGradient(
+                colors: [Color(red: 0.03, green: 0.09, blue: 0.16), Color(red: 0.06, green: 0.46, blue: 0.42), Color(red: 0.15, green: 0.39, blue: 0.92)],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            ),
+            in: RoundedRectangle(cornerRadius: 14)
+        )
+        .padding(.top, 10)
+    }
+
+    private func cardTitle(_ text: String, systemImage: String) -> some View {
+        HStack(spacing: 9) {
+            Image(systemName: systemImage)
+                .foregroundColor(Color(red: 0.06, green: 0.46, blue: 0.42))
+            Text(text)
+                .font(.system(size: 13, weight: .black))
+                .foregroundColor(Color(red: 0.26, green: 0.32, blue: 0.39))
+                .textCase(.uppercase)
+            Spacer()
+        }
     }
 
     private func loadShipments() async {
@@ -326,6 +351,16 @@ struct HomeView: View {
 
     private func shortId(_ id: String) -> String {
         String(id.prefix(8)).uppercased()
+    }
+}
+
+private extension View {
+    func cardSurface() -> some View {
+        self
+            .padding(16)
+            .background(.white.opacity(0.92), in: RoundedRectangle(cornerRadius: 12))
+            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.black.opacity(0.07), lineWidth: 1))
+            .shadow(color: .black.opacity(0.08), radius: 18, y: 10)
     }
 }
 

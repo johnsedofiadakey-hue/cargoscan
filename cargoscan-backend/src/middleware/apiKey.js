@@ -1,6 +1,5 @@
-const { PrismaClient } = require("@prisma/client");
 const bcrypt = require("bcrypt");
-const prisma = new PrismaClient();
+const prisma = require("../lib/prisma");
 
 const authenticateApiKey = async (req, res, next) => {
   const apiKeyHeader = req.headers["x-api-key"] || req.headers["authorization"];

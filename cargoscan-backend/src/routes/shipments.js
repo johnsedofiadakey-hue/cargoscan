@@ -1,12 +1,12 @@
 const express = require("express");
-const { PrismaClient } = require("@prisma/client");
 const { authenticateToken, requireRole } = require("../middleware/auth");
 const { checkPlanExpiration, checkShipmentLimit } = require("../middleware/plan");
 const eventBus = require("../lib/events");
 const audit = require("../lib/audit");
+const { shipmentTrackingCode } = require("../lib/trackingCodes");
 
 const router = express.Router();
-const prisma = new PrismaClient();
+const prisma = require("../lib/prisma");
 
 router.get("/", authenticateToken, async (req, res) => {
   try {
@@ -17,7 +17,7 @@ router.get("/", authenticateToken, async (req, res) => {
     });
 
     const result = shipments.map(s => {
-      const totalCbm = s.cargoItems.reduce((acc, item) => acc + item.cbm, 0);
+      const totalCbm = s.cargoItems.reduce((acc, item) => acc + Number(item.cbm || 0), 0);
       return { ...s, totalCbm, itemsCount: s.cargoItems.length };
     });
     res.json(result);
@@ -48,6 +48,7 @@ router.post(
       const shipment = await prisma.shipment.create({
         data: {
           code,
+          trackingCode: await shipmentTrackingCode(prisma),
           from,
           to,
           cbmCapacity: parseFloat(cbmCapacity),

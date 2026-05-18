@@ -101,7 +101,7 @@ export default function TrackingPage({ apiBase = import.meta.env.VITE_API_URL ||
               <div style={{ fontSize: 18, fontWeight: 700, color: data.status === "DELIVERED" ? C.success : C.blue }}>{data.status}</div>
             </div>
             <div style={{ fontFamily: C.mono, fontSize: 12, fontWeight: 700, background: C.lightGray, padding: "6px 12px", borderRadius: 6 }}>
-              {isShipment ? data.code : data.id.substring(0, 8)}
+              {isShipment ? data.code : (data.trackingCode || data.id).substring(0, 12)}
             </div>
           </div>
           
@@ -117,7 +117,7 @@ export default function TrackingPage({ apiBase = import.meta.env.VITE_API_URL ||
             </div>
             <div>
               <div style={{ fontSize: 11, color: C.gray, textTransform: "uppercase" }}>Total CBM</div>
-              <div style={{ fontSize: 14, fontWeight: 700, color: C.blue }}>{isShipment ? data.cbm : data.cbm}</div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: C.blue }}>{Number((isShipment ? data.cbm : data.cbm) || 0).toFixed(3)}</div>
             </div>
             <div>
               <div style={{ fontSize: 11, color: C.gray, textTransform: "uppercase" }}>Total Items</div>
@@ -157,9 +157,11 @@ export default function TrackingPage({ apiBase = import.meta.env.VITE_API_URL ||
                 <div key={item.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 12px", background: C.s2, borderRadius: 8 }}>
                   <div>
                     <div style={{ fontSize: 12, fontWeight: 600 }}>{item.description || `Item #${item.id.substring(0, 4)}`}</div>
-                    <div style={{ fontSize: 10, color: C.gray, fontFamily: C.mono }}>{item.length}x{item.width}x{item.height} cm</div>
+                    <div style={{ fontSize: 10, color: C.gray, fontFamily: C.mono }}>
+                      {[item.length, item.width, item.height].map((value) => value == null ? "?" : value).join("x")} cm
+                    </div>
                   </div>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: C.blue }}>{item.cbm} CBM</div>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: C.blue }}>{Number(item.cbm || 0).toFixed(3)} CBM</div>
                 </div>
               ))}
             </div>

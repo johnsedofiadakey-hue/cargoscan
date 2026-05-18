@@ -9,8 +9,15 @@ try {
 
 const provider = process.env.STORAGE_PROVIDER || "local";
 
+if (provider === "local" && process.env.NODE_ENV === "production" && process.env.ALLOW_LOCAL_STORAGE !== "true") {
+  throw new Error("Local scan photo storage is disabled in production. Configure Supabase/S3-compatible storage.");
+}
+
 let supabase;
 if (provider === "supabase" && createClient) {
+  if (!process.env.SUPABASE_URL || !process.env.SUPABASE_KEY) {
+    throw new Error("SUPABASE_URL and SUPABASE_KEY are required when STORAGE_PROVIDER=supabase");
+  }
   supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
 }
 

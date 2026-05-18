@@ -1,14 +1,13 @@
 const express = require("express");
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
-const { PrismaClient } = require("@prisma/client");
 const redis = require("../services/redis");
 const crypto = require("crypto");
 const { authenticateToken } = require("../middleware/auth");
 const { verifyFirebaseIdToken } = require("../services/firebaseAdmin");
 
 const router = express.Router();
-const prisma = new PrismaClient();
+const prisma = require("../lib/prisma");
 
 const generateSlug = (name) => {
   return name.toLowerCase().replace(/[^a-z0-9 ]/g, "").replace(/\s+/g, "-").slice(0, 32);

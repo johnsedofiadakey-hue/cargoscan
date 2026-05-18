@@ -1,8 +1,7 @@
 const eventBus = require("../lib/events");
 const crypto = require("crypto");
-const { PrismaClient } = require("@prisma/client");
 
-const prisma = new PrismaClient();
+const prisma = require("../lib/prisma");
 
 // Retry delays in ms: immediate, 1s, 2s, 4s, 8s, 16s (1 initial + 5 retries)
 const RETRY_DELAYS = [0, 1000, 2000, 4000, 8000, 16000];
@@ -67,6 +66,7 @@ async function dispatchToWebhook(webhook, event, payload) {
         status: result.ok ? "SUCCESS" : "FAILED",
         responseStatus: result.responseStatus,
         responseBody: result.responseBody,
+        body: rawBody,
         attemptCount: attempt + 1,
       },
     }).catch(err => console.error("[WebhookDispatcher] Failed to log delivery:", err.message));
@@ -113,6 +113,43 @@ async function dispatch(orgId, event, payload) {
   }
 }
 
+async function recoverFailedDeliveries() {
+  let failedDeliveries;
+  try {
+    failedDeliveries = await prisma.webhookDelivery.findMany({
+      where: {
+        status: "FAILED",
+        attemptCount: { lt: RETRY_DELAYS.length },
+        body: { not: null },
+        webhook: { active: true },
+      },
+      include: { webhook: true },
+      orderBy: { createdAt: "asc" },
+      take: 20,
+    });
+  } catch (err) {
+    console.error("[WebhookDispatcher] Failed to load retryable deliveries:", err.message);
+    return;
+  }
+
+  for (const delivery of failedDeliveries) {
+    try {
+      await prisma.webhookDelivery.update({
+        where: { id: delivery.id },
+        data: { status: "RETRYING" },
+      });
+      const payload = JSON.parse(delivery.body);
+      await dispatchToWebhook(delivery.webhook, delivery.event, payload);
+    } catch (err) {
+      console.error(`[WebhookDispatcher] Failed to recover delivery ${delivery.id}:`, err.message);
+      await prisma.webhookDelivery.update({
+        where: { id: delivery.id },
+        data: { status: "FAILED", responseBody: err.message },
+      }).catch(() => {});
+    }
+  }
+}
+
 // Event listeners — subscribe to all known events
 const ALL_EVENTS = [
   "scan.created",
@@ -137,5 +174,10 @@ for (const evt of ALL_EVENTS) {
 }
 
 console.log("[WebhookDispatcher] Service loaded — event listeners registered");
+setInterval(() => {
+  recoverFailedDeliveries().catch(err =>
+    console.error("[WebhookDispatcher] Recovery loop error:", err.message)
+  );
+}, 60 * 1000);
 
-module.exports = { dispatch };
+module.exports = { dispatch, recoverFailedDeliveries };

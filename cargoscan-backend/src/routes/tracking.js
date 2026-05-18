@@ -1,13 +1,13 @@
 const express = require("express");
 const router = express.Router();
-const { PrismaClient } = require("@prisma/client");
 
-const prisma = new PrismaClient();
+const prisma = require("../lib/prisma");
 
 function itemDto(item) {
   const latestScan = item.scanResults?.[0] || null;
   return {
-    id: item.id,
+    id: item.trackingCode,
+    trackingCode: item.trackingCode,
     description: item.description,
     status: item.status,
     isDamaged: item.isDamaged,
@@ -23,13 +23,14 @@ function itemDto(item) {
 function shipmentDto(shipment) {
   const cargoItems = shipment.cargoItems || [];
   return {
-    id: shipment.id,
+    id: shipment.trackingCode,
     code: shipment.code,
+    trackingCode: shipment.trackingCode,
     from: shipment.from,
     to: shipment.to,
     status: shipment.status,
     cbmCapacity: shipment.cbmCapacity,
-    cbm: cargoItems.reduce((sum, item) => sum + item.cbm, 0),
+    cbm: cargoItems.reduce((sum, item) => sum + Number(item.cbm || 0), 0),
     items: cargoItems.length,
     createdAt: shipment.createdAt,
     updatedAt: shipment.updatedAt,
@@ -40,14 +41,40 @@ function shipmentDto(shipment) {
   };
 }
 
-// Public tracking by item ID or shipment code
+function certificateDto(cert) {
+  const item = cert.cargoItem;
+  return {
+    id: cert.id,
+    hash: cert.hash,
+    issuedAt: cert.createdAt,
+    cargoItem: item
+      ? {
+          id: item.trackingCode,
+          trackingCode: item.trackingCode,
+          description: item.description,
+          cbm: item.cbm,
+          status: item.status,
+          shipment: item.shipment
+            ? {
+                code: item.shipment.code,
+                trackingCode: item.shipment.trackingCode,
+                from: item.shipment.from,
+                to: item.shipment.to,
+                status: item.shipment.status,
+              }
+            : null,
+        }
+      : null,
+  };
+}
+
+// Public tracking by non-guessable shipment/package tracking code.
 router.get("/:code", async (req, res) => {
   const { code } = req.params;
 
   try {
-    // Try to find a shipment first
     const shipment = await prisma.shipment.findUnique({
-      where: { code: code },
+      where: { trackingCode: code },
       include: {
         organization: { select: { name: true, slug: true } },
         cargoItems: {
@@ -65,25 +92,19 @@ router.get("/:code", async (req, res) => {
       return res.json({ type: "shipment", data: shipmentDto(shipment) });
     }
 
-    // If not found, try to find a cargo item by ID
-    // (Assuming the "code" passed might be a CargoItem ID)
-    try {
-      const item = await prisma.cargoItem.findUnique({
-        where: { id: code },
-        include: {
-          shipment: true,
-          scanResults: {
-            orderBy: { createdAt: "desc" },
-            take: 1,
-          },
-        }
-      });
-
-      if (item) {
-        return res.json({ type: "item", data: itemDto(item) });
+    const item = await prisma.cargoItem.findUnique({
+      where: { trackingCode: code },
+      include: {
+        shipment: true,
+        scanResults: {
+          orderBy: { createdAt: "desc" },
+          take: 1,
+        },
       }
-    } catch (e) {
-      // Ignore UUID parsing errors if code is not a valid UUID
+    });
+
+    if (item) {
+      return res.json({ type: "item", data: itemDto(item) });
     }
 
     res.status(404).json({ error: "Tracking code not found" });
@@ -115,7 +136,7 @@ router.get("/_verify/:hash", async (req, res) => {
 
     res.json({
       verified: true,
-      certificate: cert,
+      certificate: certificateDto(cert),
     });
   } catch (err) {
     console.error("Verify Error:", err);

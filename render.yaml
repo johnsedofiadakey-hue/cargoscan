@@ -39,7 +39,7 @@ services:
       - key: FRONTEND_URL
         sync: false
       - key: STORAGE_PROVIDER
-        value: local
+        value: supabase
       - key: SUPABASE_URL
         sync: false
       - key: SUPABASE_KEY

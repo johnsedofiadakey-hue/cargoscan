@@ -1,13 +1,29 @@
 const express = require("express");
-const { PrismaClient } = require("@prisma/client");
 const { authenticateEither } = require("../middleware/either");
 const { requireScope } = require("../middleware/apiKey");
 const { checkPlanExpiration, checkItemsLimit } = require("../middleware/plan");
 const eventBus = require("../lib/events");
 const audit = require("../lib/audit");
+const { cargoItemTrackingCode } = require("../lib/trackingCodes");
 
 const router = express.Router();
-const prisma = new PrismaClient();
+const prisma = require("../lib/prisma");
+
+const PACKAGE_STATUSES = new Set([
+  "WAITING_FOR_SCAN",
+  "SCANNING",
+  "READY_TO_LOAD",
+  "NEEDS_REVIEW",
+  "RESCAN_REQUIRED",
+  "LOADED",
+  "DELIVERED",
+]);
+
+const parseOptionalPositive = (value) => {
+  if (value === undefined || value === null || value === "") return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : NaN;
+};
 
 // List cargo items for the organization
 router.get("/", authenticateEither, async (req, res) => {
@@ -39,8 +55,8 @@ router.post(
     try {
       const { shipmentId, consigneeId, length, width, height, isDamaged, description } = req.body;
 
-      if (!shipmentId || length == null || width == null || height == null) {
-        return res.status(400).json({ error: "Missing required fields" });
+      if (!shipmentId) {
+        return res.status(400).json({ error: "Shipment is required" });
       }
 
       // Verify shipment belongs to the org
@@ -57,15 +73,27 @@ router.post(
         if (!consignee) return res.status(404).json({ error: "Consignee not found" });
       }
 
-      const cbm = (parseFloat(length) * parseFloat(width) * parseFloat(height)) / 1000000;
+      const parsedLength = parseOptionalPositive(length);
+      const parsedWidth = parseOptionalPositive(width);
+      const parsedHeight = parseOptionalPositive(height);
+      const hasAnyDimension = [parsedLength, parsedWidth, parsedHeight].some((v) => v !== null);
+      const hasAllDimensions = [parsedLength, parsedWidth, parsedHeight].every((v) => v !== null && !Number.isNaN(v));
+
+      if (hasAnyDimension && !hasAllDimensions) {
+        return res.status(400).json({ error: "Length, width, and height must all be positive numbers when provided" });
+      }
+
+      const cbm = hasAllDimensions ? (parsedLength * parsedWidth * parsedHeight) / 1000000 : null;
 
       const item = await prisma.cargoItem.create({
         data: {
-          length: parseFloat(length),
-          width: parseFloat(width),
-          height: parseFloat(height),
+          trackingCode: await cargoItemTrackingCode(prisma),
+          length: parsedLength,
+          width: parsedWidth,
+          height: parsedHeight,
           cbm,
-          scanConfidence: 100.0,
+          scanConfidence: null,
+          status: hasAllDimensions ? "NEEDS_REVIEW" : "WAITING_FOR_SCAN",
           isDamaged: isDamaged || false,
           description,
           shipmentId,
@@ -80,7 +108,7 @@ router.post(
         action: "CREATE",
         target: "ITEM",
         targetId: item.id,
-        details: { shipmentId, cbm },
+        details: { shipmentId, cbm, status: item.status },
       });
 
       eventBus.emit("item.created", {
@@ -88,6 +116,7 @@ router.post(
         itemId: item.id,
         shipmentId,
         cbm,
+        status: item.status,
       });
 
       res.status(201).json(item);
@@ -140,12 +169,22 @@ router.put(
         if (!consignee) return res.status(404).json({ error: "Consignee not found" });
       }
 
+      if (status !== undefined && !PACKAGE_STATUSES.has(status)) {
+        return res.status(400).json({ error: "Invalid package status" });
+      }
+
       let dataToUpdate = { status, isDamaged, description };
       if (consigneeId !== undefined) dataToUpdate.consigneeId = consigneeId;
-      if (length != null && width != null && height != null) {
-        dataToUpdate.length = parseFloat(length);
-        dataToUpdate.width = parseFloat(width);
-        dataToUpdate.height = parseFloat(height);
+      if (length !== undefined || width !== undefined || height !== undefined) {
+        const parsedLength = parseOptionalPositive(length);
+        const parsedWidth = parseOptionalPositive(width);
+        const parsedHeight = parseOptionalPositive(height);
+        if ([parsedLength, parsedWidth, parsedHeight].some((v) => v === null || Number.isNaN(v))) {
+          return res.status(400).json({ error: "Length, width, and height must all be positive numbers when updating dimensions" });
+        }
+        dataToUpdate.length = parsedLength;
+        dataToUpdate.width = parsedWidth;
+        dataToUpdate.height = parsedHeight;
         dataToUpdate.cbm = (dataToUpdate.length * dataToUpdate.width * dataToUpdate.height) / 1000000;
       }
 

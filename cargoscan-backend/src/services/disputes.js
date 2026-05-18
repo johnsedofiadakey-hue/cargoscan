@@ -1,6 +1,5 @@
-const { PrismaClient } = require("@prisma/client");
 const eventBus = require("../lib/events");
-const prisma = new PrismaClient();
+const prisma = require("../lib/prisma");
 
 /**
  * Evaluate if a new scan creates a dispute based on CBM gap.
@@ -23,7 +22,9 @@ async function evaluate(cargoItemId, newCbm, scanId, orgId) {
     }
 
     const prev = prevScans[0];
-    const gap = Math.abs(prev.cbm - newCbm) / Math.max(prev.cbm, newCbm);
+    const prevCbm = Number(prev.cbm || 0);
+    const nextCbm = Number(newCbm || 0);
+    const gap = Math.abs(prevCbm - nextCbm) / Math.max(prevCbm, nextCbm, 1);
 
     let status = "OPEN";
     let notes = `CBM gap detected: ${(gap * 100).toFixed(2)}%`;
@@ -43,8 +44,8 @@ async function evaluate(cargoItemId, newCbm, scanId, orgId) {
       data: {
         cargoItemId,
         status,
-        originCbm: prev.cbm,
-        destinationCbm: newCbm,
+        originCbm: prevCbm,
+        destinationCbm: nextCbm,
         notes,
       }
     });
@@ -60,8 +61,8 @@ async function evaluate(cargoItemId, newCbm, scanId, orgId) {
       disputeId: dispute.id,
       cargoItemId,
       status,
-      originCbm: prev.cbm,
-      destinationCbm: newCbm,
+      originCbm: prevCbm,
+      destinationCbm: nextCbm,
       consigneePhone: item?.consignee?.phone,
       consigneeName: item?.consignee?.name,
       trackingCode: cargoItemId,

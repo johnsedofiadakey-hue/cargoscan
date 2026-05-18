@@ -1,6 +1,5 @@
-const { PrismaClient } = require("@prisma/client");
 const emailService = require("./email");
-const prisma = new PrismaClient();
+const prisma = require("../lib/prisma");
 
 /**
  * Start the background scheduler.

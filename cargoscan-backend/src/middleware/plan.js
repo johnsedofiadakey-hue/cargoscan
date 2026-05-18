@@ -1,6 +1,5 @@
 const { LIMITS } = require("../lib/planLimits");
-const { PrismaClient } = require("@prisma/client");
-const prisma = new PrismaClient();
+const prisma = require("../lib/prisma");
 
 /**
  * Middleware to check if the organization's plan has expired.

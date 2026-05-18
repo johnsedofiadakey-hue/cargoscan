@@ -1,11 +1,10 @@
 const express = require("express");
 const router = express.Router();
-const { PrismaClient } = require("@prisma/client");
 const { authenticateToken, requireRole } = require("../middleware/auth");
 const paystack = require("../services/paystack");
 const audit = require("../lib/audit");
 
-const prisma = new PrismaClient();
+const prisma = require("../lib/prisma");
 
 // Initialize payment
 router.post("/init", authenticateToken, requireRole(["ADMIN"]), async (req, res) => {

@@ -1,12 +1,24 @@
 const express = require("express");
 const router = express.Router();
-const { PrismaClient } = require("@prisma/client");
 const bcrypt = require("bcrypt");
 const crypto = require("crypto");
 const { authenticateToken, requireRole } = require("../middleware/auth");
 const { checkApiKeyLimit } = require("../middleware/plan");
 
-const prisma = new PrismaClient();
+const prisma = require("../lib/prisma");
+const ALLOWED_SCOPES = new Set([
+  "items:read",
+  "items:write",
+  "shipments:read",
+  "scans:write",
+  "containers:read",
+  "containers:write",
+]);
+
+function normalizeScopes(scopes) {
+  const list = Array.isArray(scopes) ? scopes : String(scopes || "").split(",");
+  return [...new Set(list.map((scope) => scope.trim()).filter(Boolean))];
+}
 
 // List API keys
 router.get("/", authenticateToken, requireRole(["ADMIN"]), async (req, res) => {
@@ -33,8 +45,14 @@ router.get("/", authenticateToken, requireRole(["ADMIN"]), async (req, res) => {
 router.post("/", authenticateToken, requireRole(["ADMIN"]), checkApiKeyLimit, async (req, res) => {
   const { name, scopes, environment } = req.body; // environment: live or test
 
-  if (!name || !scopes) {
+  const normalizedScopes = normalizeScopes(scopes);
+
+  if (!name || normalizedScopes.length === 0) {
     return res.status(400).json({ error: "Missing required fields" });
+  }
+  const invalidScopes = normalizedScopes.filter((scope) => !ALLOWED_SCOPES.has(scope));
+  if (invalidScopes.length) {
+    return res.status(400).json({ error: "Invalid scopes", invalidScopes, allowedScopes: [...ALLOWED_SCOPES] });
   }
 
   try {
@@ -52,7 +70,7 @@ router.post("/", authenticateToken, requireRole(["ADMIN"]), checkApiKeyLimit, as
         name,
         prefix,
         hashedSecret,
-        scopes: Array.isArray(scopes) ? scopes.join(",") : scopes, // Support both array and CSV string
+        scopes: normalizedScopes.join(","),
         organizationId: req.org.id,
       }
     });

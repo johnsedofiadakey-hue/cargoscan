@@ -1,5 +1,4 @@
 const express = require("express");
-const { PrismaClient } = require("@prisma/client");
 const { authenticateEither } = require("../middleware/either");
 const { authenticateToken, requireRole } = require("../middleware/auth");
 const { requireScope } = require("../middleware/apiKey");
@@ -7,13 +6,16 @@ const { checkPlanExpiration, checkContainerLimit, requireFeature } = require("..
 const audit = require("../lib/audit");
 
 const router = express.Router();
-const prisma = new PrismaClient();
+const prisma = require("../lib/prisma");
 
 const capacityByType = {
   "20FT": 33,
   "40FT": 67,
   "40HQ": 76,
 };
+
+const LOADABLE_ITEM_STATUS = "READY_TO_LOAD";
+const OPEN_CONTAINER_STATUSES = new Set(["OPEN", "LOADING"]);
 
 const containerDto = (container) => {
   const items = container.cargoItems || [];
@@ -147,10 +149,41 @@ router.post("/:id/items", authenticateEither, requireScope("items:write"), check
     const container = await prisma.container.findFirst({ where: { id: req.params.id, organizationId: req.org.id } });
     if (!container) return res.status(404).json({ error: "Container not found" });
 
+    if (!OPEN_CONTAINER_STATUSES.has(container.status)) {
+      return res.status(409).json({ error: "Cannot load packages into a sealed, in-transit, arrived, or delivered container" });
+    }
+
     const item = await prisma.cargoItem.findFirst({
       where: { id: cargoItemId, shipment: { organizationId: req.org.id } },
     });
     if (!item) return res.status(404).json({ error: "Cargo item not found" });
+    if (item.status !== LOADABLE_ITEM_STATUS) {
+      return res.status(409).json({
+        error: `Package must be ${LOADABLE_ITEM_STATUS} before loading`,
+        status: item.status,
+      });
+    }
+    if (item.cbm == null) {
+      return res.status(409).json({ error: "Package has no measured CBM" });
+    }
+    if (container.shipmentId && item.shipmentId !== container.shipmentId) {
+      return res.status(409).json({ error: "Package shipment does not match this container shipment" });
+    }
+
+    const loaded = await prisma.cargoItem.findMany({
+      where: { containerId: container.id },
+      select: { cbm: true },
+    });
+    const loadedCbm = loaded.reduce((sum, loadedItem) => sum + Number(loadedItem.cbm || 0), 0);
+    const nextCbm = loadedCbm + Number(item.cbm || 0);
+    if (nextCbm > container.capacityCbm) {
+      return res.status(409).json({
+        error: "Container capacity would be exceeded",
+        capacityCbm: container.capacityCbm,
+        loadedCbm,
+        packageCbm: item.cbm,
+      });
+    }
 
     const updated = await prisma.cargoItem.update({
       where: { id: item.id },
@@ -165,7 +198,7 @@ router.post("/:id/items", authenticateEither, requireScope("items:write"), check
       action: "ASSIGN",
       target: "ITEM_CONTAINER",
       targetId: item.id,
-      details: { containerId: container.id },
+      details: { containerId: container.id, previousStatus: item.status, newStatus: "LOADED" },
     });
 
     res.json(updated);
@@ -187,7 +220,7 @@ router.delete("/:id/items/:itemId", authenticateEither, requireScope("items:writ
 
     const updated = await prisma.cargoItem.update({
       where: { id: item.id },
-      data: { containerId: null, status: "SCANNED" },
+      data: { containerId: null, status: "READY_TO_LOAD" },
     });
 
     res.json(updated);

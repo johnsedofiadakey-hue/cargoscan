@@ -27,7 +27,28 @@ function authHeaders() {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
-async function api(path, options = {}) {
+async function refreshAccessToken() {
+  const refreshToken = localStorage.getItem("cs_refresh_token");
+  if (!refreshToken) return null;
+
+  const response = await fetch(`${API_BASE}/auth/refresh`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ refreshToken }),
+  });
+  const text = await response.text();
+  const data = text ? JSON.parse(text) : null;
+  if (!response.ok) return null;
+
+  const token = data?.token || data?.accessToken;
+  if (!token) return null;
+
+  localStorage.setItem("cs_token", token);
+  if (data.refreshToken) localStorage.setItem("cs_refresh_token", data.refreshToken);
+  return token;
+}
+
+async function api(path, options = {}, hasRetried = false) {
   const response = await fetch(`${API_BASE}${path}`, {
     ...options,
     headers: {
@@ -38,6 +59,10 @@ async function api(path, options = {}) {
   });
   const text = await response.text();
   const data = text ? JSON.parse(text) : null;
+  if (response.status === 401 && !hasRetried && path !== "/auth/refresh") {
+    const token = await refreshAccessToken();
+    if (token) return api(path, options, true);
+  }
   if (!response.ok) throw new Error(data?.error || `Request failed (${response.status})`);
   return data;
 }
@@ -246,6 +271,134 @@ function Metric({ label, value }) {
   );
 }
 
+function OperationsCommand({ data, setActive }) {
+  const waitingItems = data.items.filter((item) => item.status === "WAITING_FOR_SCAN" || item.status === "SCANNING");
+  const reviewItems = data.items.filter((item) => {
+    const latestScan = item.scanResults?.[0];
+    return item.status === "NEEDS_REVIEW" || item.status === "RESCAN_REQUIRED" || (latestScan?.qualityStatus && latestScan.qualityStatus !== "PASS");
+  });
+  const readyItems = data.items.filter((item) => item.status === "READY_TO_LOAD");
+  const openShipments = data.shipments.filter((shipment) => shipment.status === "OPEN" || shipment.status === "LOADING");
+
+  return (
+    <section className="command-center">
+      <div className="command-copy">
+        <span className="section-kicker">Live warehouse flow</span>
+        <h2>Receive, scan, verify, then load.</h2>
+        <p>Desktop owns shipments, customers, containers, and review. The iPhone scanner feeds package dimensions, photos, and quality signals back into this workspace.</p>
+        <div className="command-actions">
+          <button className="primary" onClick={() => setActive("mobile app")}>Install scanner</button>
+          <button onClick={() => setActive("containers")}>Load containers</button>
+        </div>
+      </div>
+      <div className="flow-board" aria-label="Warehouse workflow">
+        <article>
+          <span>1</span>
+          <strong>Open shipments</strong>
+          <em>{openShipments.length}</em>
+        </article>
+        <article>
+          <span>2</span>
+          <strong>Waiting to scan</strong>
+          <em>{waitingItems.length}</em>
+        </article>
+        <article>
+          <span>3</span>
+          <strong>Need review</strong>
+          <em>{reviewItems.length}</em>
+        </article>
+        <article>
+          <span>4</span>
+          <strong>Ready to load</strong>
+          <em>{readyItems.length}</em>
+        </article>
+      </div>
+    </section>
+  );
+}
+
+function WorkQueue({ data }) {
+  const queue = data.items
+    .filter((item) => !item.containerId && item.status !== "LOADED" && item.status !== "DELIVERED")
+    .slice(0, 6);
+
+  return (
+    <section className="panel wide queue-panel">
+      <div className="panel-title-row">
+        <div>
+          <span className="section-kicker">Package queue</span>
+          <h2>Waiting for container assignment</h2>
+        </div>
+        <strong>{queue.length} shown</strong>
+      </div>
+      <div className="queue-list">
+        {queue.map((item) => {
+          const latestScan = item.scanResults?.[0];
+          const statusLabel = item.status || "WAITING_FOR_SCAN";
+          return (
+            <article key={item.id} className="queue-row">
+              <div>
+                <strong>{item.description || item.id.slice(0, 8)}</strong>
+                <span>{item.shipment?.code || "No shipment"} · {item.consignee?.name || "No customer"}</span>
+              </div>
+              <span>{item.cbm == null ? "Unmeasured" : `${Number(item.cbm || 0).toFixed(3)} CBM`}</span>
+              <span className={`quality-pill quality-${(latestScan?.qualityStatus || "review").toLowerCase()}`}>
+                {latestScan?.qualityStatus || statusLabel}
+              </span>
+            </article>
+          );
+        })}
+        {!queue.length && <p className="empty">No packages are waiting. Create an item or scan from the iPhone app.</p>}
+      </div>
+    </section>
+  );
+}
+
+function ReviewQueue({ data, reload, setMessage }) {
+  const reviewItems = data.items.filter((item) => item.status === "NEEDS_REVIEW" || item.status === "RESCAN_REQUIRED");
+
+  async function setPackageStatus(item, status) {
+    await api(`/items/${item.id}`, {
+      method: "PUT",
+      body: JSON.stringify({ status }),
+    });
+    setMessage(status === "READY_TO_LOAD" ? "Package approved for loading." : "Package marked for rescan.");
+    reload();
+  }
+
+  return (
+    <section className="panel wide queue-panel">
+      <div className="panel-title-row">
+        <div>
+          <span className="section-kicker">Scan review</span>
+          <h2>Exceptions and rescan decisions</h2>
+        </div>
+        <strong>{reviewItems.length} open</strong>
+      </div>
+      <div className="queue-list">
+        {reviewItems.map((item) => {
+          const latestScan = item.scanResults?.[0];
+          return (
+            <article key={item.id} className="queue-row review-row">
+              <div>
+                <strong>{item.description || item.id.slice(0, 8)}</strong>
+                <span>{item.shipment?.code || "No shipment"} · {item.consignee?.name || "No customer"} · {item.status}</span>
+                {latestScan?.qualityReason && <small>{latestScan.qualityReason}</small>}
+              </div>
+              <span>{item.cbm == null ? "Unmeasured" : `${Number(item.cbm || 0).toFixed(3)} CBM`}</span>
+              <div className="button-row">
+                <button disabled={item.cbm == null} onClick={() => setPackageStatus(item, "READY_TO_LOAD")}>Approve</button>
+                <button onClick={() => setPackageStatus(item, "RESCAN_REQUIRED")}>Rescan</button>
+              </div>
+            </article>
+          );
+        })}
+        {!reviewItems.length && <p className="empty">No scan exceptions waiting for supervisor review.</p>}
+      </div>
+    </section>
+  );
+}
+
 function ShipmentsTab({ data, reload, setMessage }) {
   const [form, setForm] = useState(emptyShipment);
   const [item, setItem] = useState(emptyItem);
@@ -275,9 +428,9 @@ function ShipmentsTab({ data, reload, setMessage }) {
       body: JSON.stringify({
         ...item,
         consigneeId: item.consigneeId || null,
-        length: Number(item.length),
-        width: Number(item.width),
-        height: Number(item.height),
+        length: item.length === "" ? undefined : Number(item.length),
+        width: item.width === "" ? undefined : Number(item.width),
+        height: item.height === "" ? undefined : Number(item.height),
       }),
     });
     setItem(emptyItem);
@@ -286,6 +439,10 @@ function ShipmentsTab({ data, reload, setMessage }) {
   }
 
   async function saveManualScan(cargoItem) {
+    if (cargoItem.length == null || cargoItem.width == null || cargoItem.height == null || cargoItem.cbm == null) {
+      setMessage("Add dimensions before saving a manual scan.");
+      return;
+    }
     await api("/scans", {
       method: "POST",
       body: JSON.stringify({
@@ -305,6 +462,8 @@ function ShipmentsTab({ data, reload, setMessage }) {
 
   return (
     <div className="tab-grid">
+      <WorkQueue data={data} />
+      <ReviewQueue data={data} reload={reload} setMessage={setMessage} />
       <section className="panel">
         <h2>Create shipment</h2>
         <form onSubmit={createShipment}>
@@ -325,11 +484,11 @@ function ShipmentsTab({ data, reload, setMessage }) {
           <SelectField label="Consignee" value={item.consigneeId} options={consigneeOptions} onChange={(value) => setItem({ ...item, consigneeId: value })} />
           <Field label="Description" value={item.description} onChange={(value) => setItem({ ...item, description: value })} />
           <div className="form-grid">
-            <Field label="Length" type="number" value={item.length} required onChange={(value) => setItem({ ...item, length: value })} />
-            <Field label="Width" type="number" value={item.width} required onChange={(value) => setItem({ ...item, width: value })} />
-            <Field label="Height" type="number" value={item.height} required onChange={(value) => setItem({ ...item, height: value })} />
+            <Field label="Length" type="number" value={item.length} placeholder="Scan later" onChange={(value) => setItem({ ...item, length: value })} />
+            <Field label="Width" type="number" value={item.width} placeholder="Scan later" onChange={(value) => setItem({ ...item, width: value })} />
+            <Field label="Height" type="number" value={item.height} placeholder="Scan later" onChange={(value) => setItem({ ...item, height: value })} />
           </div>
-          <button className="primary">Create item</button>
+          <button className="primary">Create package</button>
         </form>
       </section>
 
@@ -346,7 +505,7 @@ function ShipmentsTab({ data, reload, setMessage }) {
                   <td>{shipment.status}</td>
                   <td>{shipment.itemsCount}</td>
                   <td>{Number(shipment.totalCbm || 0).toFixed(3)}</td>
-                  <td><a href={`/tracking/${shipment.code}`} target="_blank" rel="noreferrer">Open</a></td>
+                  <td><a href={`/tracking/${shipment.trackingCode}`} target="_blank" rel="noreferrer">Open</a></td>
                 </tr>
               ))}
             </tbody>
@@ -369,13 +528,13 @@ function ShipmentsTab({ data, reload, setMessage }) {
                 ) : null;
               })()}
               <strong>{cargoItem.description || cargoItem.id.slice(0, 8)}</strong>
-              <span>{cargoItem.shipment?.code} · {Number(cargoItem.cbm).toFixed(3)} CBM · {cargoItem.status}</span>
+              <span>{cargoItem.shipment?.code} · {cargoItem.cbm == null ? "Unmeasured" : `${Number(cargoItem.cbm || 0).toFixed(3)} CBM`} · {cargoItem.status}</span>
               {cargoItem.scanResults?.[0]?.qualityReason && (
                 <small>{cargoItem.scanResults[0].qualityReason}</small>
               )}
               <div className="button-row">
-                <button onClick={() => saveManualScan(cargoItem)}>Save manual scan</button>
-                <a href={`/tracking/${cargoItem.id}`} target="_blank" rel="noreferrer">Track item</a>
+                <button disabled={cargoItem.length == null || cargoItem.width == null || cargoItem.height == null} onClick={() => saveManualScan(cargoItem)}>Save manual scan</button>
+                <a href={`/tracking/${cargoItem.trackingCode}`} target="_blank" rel="noreferrer">Track item</a>
               </div>
             </article>
           ))}
@@ -446,7 +605,7 @@ function ContainersTab({ data, reload, setMessage, setError }) {
     { value: "", label: "Select container" },
     ...data.containers.map((container) => ({ value: container.id, label: `${container.number} · ${container.type}` })),
   ];
-  const availableItems = data.items.filter((item) => !item.containerId);
+  const availableItems = data.items.filter((item) => !item.containerId && item.status === "READY_TO_LOAD");
   const itemOptions = [
     { value: "", label: "Select scanned package" },
     ...availableItems.map((item) => ({
@@ -528,7 +687,7 @@ function ContainersTab({ data, reload, setMessage, setError }) {
           <SelectField label="Package" value={selectedItemId} required options={itemOptions} onChange={setSelectedItemId} />
           <button className="primary" disabled={!selectedContainerId || !selectedItemId}>Move package</button>
         </form>
-        <p className="empty">{availableItems.length} scanned packages waiting for loading.</p>
+        <p className="empty">{availableItems.length} ready packages waiting for loading.</p>
       </section>
 
       <section className="panel wide">
@@ -711,51 +870,196 @@ function BillingTab({ organization, setMessage }) {
   );
 }
 
-function AdminDashboard({ session, onLogout }) {
+function PlatformControlCenter({ session, onLogout }) {
   const [orgs, setOrgs] = useState([]);
   const [subs, setSubs] = useState([]);
+  const [auditLogs, setAuditLogs] = useState([]);
+  const [health, setHealth] = useState(null);
+  const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [planOverride, setPlanOverride] = useState({ orgId: "", plan: "BUSINESS", days: "30" });
 
   const load = useCallback(async () => {
-    try {
-      const [organizations, subscriptions] = await Promise.all([
-        api("/admin/organizations"),
-        api("/admin/subscriptions"),
-      ]);
-      setOrgs(organizations);
-      setSubs(subscriptions);
-    } catch (err) {
-      setError(err.message);
-    }
+    const [orgRes, subRes, auditRes, healthRes] = await Promise.allSettled([
+      api("/admin/organizations"),
+      api("/admin/subscriptions"),
+      api("/admin/audit-logs"),
+      fetch(`${API_BASE}/health`, { headers: authHeaders() }).then(async (response) => {
+        const text = await response.text();
+        return text ? JSON.parse(text) : null;
+      }),
+    ]);
+
+    if (orgRes.status === "fulfilled") setOrgs(orgRes.value);
+    if (subRes.status === "fulfilled") setSubs(subRes.value);
+    if (auditRes.status === "fulfilled") setAuditLogs(auditRes.value);
+    if (healthRes.status === "fulfilled") setHealth(healthRes.value);
+
+    const firstError = [orgRes, subRes, auditRes, healthRes].find((result) => result.status === "rejected");
+    setError(firstError ? firstError.reason.message : "");
   }, []);
 
   useEffect(() => { load(); }, [load]);
 
+  async function overridePlan(event) {
+    event.preventDefault();
+    if (!planOverride.orgId) return;
+    try {
+      const result = await api("/billing/override", {
+        method: "POST",
+        body: JSON.stringify({
+          orgId: planOverride.orgId,
+          plan: planOverride.plan,
+          days: planOverride.days === "" ? undefined : Number(planOverride.days),
+        }),
+      });
+      setMessage(result.message || "Plan override applied.");
+      setPlanOverride({ orgId: "", plan: "BUSINESS", days: "30" });
+      load();
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
   return (
-    <main className="app-shell">
+    <main className="app-shell platform-shell">
       <header className="topbar">
-        <div><strong>CargoScan Admin</strong><span>{session.user.email}</span></div>
+        <div>
+          <strong>Platform Control Center</strong>
+          <span>{session.user.email}</span>
+        </div>
         <button onClick={onLogout}>Logout</button>
       </header>
       <Notice type="error">{error}</Notice>
+      <Notice type="info">{message}</Notice>
       <section className="metrics">
         <Metric label="Organizations" value={orgs.length} />
         <Metric label="Subscriptions" value={subs.length} />
         <Metric label="Active pilots" value={orgs.filter((org) => org.plan !== "TRIAL").length} />
+        <Metric label="API status" value={health?.status === "ok" ? "Healthy" : "Degraded"} />
       </section>
-      <section className="panel">
-        <h2>Organizations</h2>
-        <div className="table-wrap">
-          <table>
-            <thead><tr><th>Name</th><th>Slug</th><th>Plan</th><th>Users</th><th>Shipments</th></tr></thead>
-            <tbody>
-              {orgs.map((org) => (
-                <tr key={org.id}><td>{org.name}</td><td>{org.slug}</td><td>{org.plan}</td><td>{org.usage?.users}</td><td>{org.usage?.ships}</td></tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
+      <div className="tab-grid">
+        <section className="panel">
+          <span className="section-kicker">System health</span>
+          <h2>Runtime status</h2>
+          <div className="install-checklist">
+            <span>Database: {health?.checks?.database?.status || "unknown"}</span>
+            <span>Redis: {health?.checks?.redis?.status || "unknown"}</span>
+            <span>Webhook dispatcher: queued</span>
+            <span>Release notes: Coming soon</span>
+          </div>
+        </section>
+
+        <section className="panel">
+          <span className="section-kicker">Platform API</span>
+          <h2>Integration oversight</h2>
+          <div className="install-checklist">
+            <span>API keys: Coming after platform API</span>
+            <span>Webhook catalog: Coming after platform API</span>
+            <span>Tenant secret access: Disabled</span>
+            <span>Audit visibility: Use platform audit log feed below</span>
+          </div>
+        </section>
+
+        <section className="panel">
+          <span className="section-kicker">Plan control</span>
+          <h2>Tenant plan override</h2>
+          <form onSubmit={overridePlan}>
+            <SelectField
+              label="Tenant"
+              value={planOverride.orgId}
+              required
+              options={[
+                { value: "", label: "Select tenant" },
+                ...orgs.map((org) => ({ value: org.id, label: `${org.name} · ${org.plan}` })),
+              ]}
+              onChange={(value) => setPlanOverride({ ...planOverride, orgId: value })}
+            />
+            <div className="form-grid">
+              <SelectField
+                label="Plan"
+                value={planOverride.plan}
+                onChange={(value) => setPlanOverride({ ...planOverride, plan: value })}
+                options={[
+                  { value: "TRIAL", label: "Trial" },
+                  { value: "STARTER", label: "Starter" },
+                  { value: "BUSINESS", label: "Business" },
+                  { value: "ENTERPRISE", label: "Enterprise" },
+                ]}
+              />
+              <Field
+                label="Days"
+                type="number"
+                value={planOverride.days}
+                onChange={(value) => setPlanOverride({ ...planOverride, days: value })}
+              />
+            </div>
+            <button className="primary">Apply override</button>
+          </form>
+        </section>
+
+        <section className="panel">
+          <span className="section-kicker">Release</span>
+          <h2>Version and notes</h2>
+          <div className="install-checklist">
+            <span>Current release: 0.0.0</span>
+            <span>Release notes: Placeholder</span>
+            <span>Deployment channel: Render + Firebase</span>
+            <span>TestFlight: Managed separately</span>
+          </div>
+        </section>
+
+        <section className="panel wide">
+          <h2>Organizations</h2>
+          <div className="table-wrap">
+            <table>
+              <thead><tr><th>Name</th><th>Slug</th><th>Plan</th><th>Users</th><th>Shipments</th></tr></thead>
+              <tbody>
+                {orgs.map((org) => (
+                  <tr key={org.id}><td>{org.name}</td><td>{org.slug}</td><td>{org.plan}</td><td>{org.usage?.users}</td><td>{org.usage?.ships}</td></tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section className="panel wide">
+          <h2>Subscriptions</h2>
+          <div className="table-wrap">
+            <table>
+              <thead><tr><th>Tenant</th><th>Plan</th><th>Status</th><th>Provider</th><th>Created</th></tr></thead>
+              <tbody>
+                {subs.map((sub) => (
+                  <tr key={sub.id}>
+                    <td>{sub.organization?.name || sub.organizationId}</td>
+                    <td>{sub.planCode}</td>
+                    <td>{sub.status}</td>
+                    <td>{sub.provider}</td>
+                    <td>{new Date(sub.createdAt).toLocaleString()}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section className="panel wide">
+          <h2>Audit logs</h2>
+          <div className="queue-list">
+            {auditLogs.map((log) => (
+              <article key={log.id} className="queue-row">
+                <div>
+                  <strong>{log.action} · {log.target}</strong>
+                  <span>{log.organization?.name || "Platform"} · {new Date(log.createdAt).toLocaleString()}</span>
+                </div>
+                <span>{log.targetId || "n/a"}</span>
+                <span className="quality-pill quality-review">Read only</span>
+              </article>
+            ))}
+            {!auditLogs.length && <p className="empty">No audit logs available.</p>}
+          </div>
+        </section>
+      </div>
     </main>
   );
 }
@@ -789,13 +1093,13 @@ function Dashboard({ session, setSession }) {
   }
 
   const navItems = [
-    { id: "shipments", label: "Operations" },
-    { id: "containers", label: "Containers" },
-    { id: "customers", label: "Customers" },
-    { id: "mobile app", label: "Mobile App" },
+    { id: "shipments", label: "Operations", icon: "01" },
+    { id: "containers", label: "Containers", icon: "02" },
+    { id: "customers", label: "Customers", icon: "03" },
+    { id: "mobile app", label: "Mobile App", icon: "04" },
     ...(isAdmin ? [
-      { id: "team", label: "Team" },
-      { id: "billing", label: "Billing" },
+      { id: "team", label: "Team", icon: "05" },
+      { id: "billing", label: "Billing", icon: "06" },
     ] : []),
   ];
 
@@ -812,6 +1116,7 @@ function Dashboard({ session, setSession }) {
         <nav className="portal-nav">
           {navItems.map((tab) => (
             <button key={tab.id} className={active === tab.id ? "active" : ""} onClick={() => setActive(tab.id)}>
+              <span className="nav-icon">{tab.icon}</span>
               {tab.label}
             </button>
           ))}
@@ -838,6 +1143,8 @@ function Dashboard({ session, setSession }) {
           </div>
           <button onClick={() => setActive("mobile app")}>Install iPhone scanner</button>
         </section>
+
+        <OperationsCommand data={data} setActive={setActive} />
 
         <section className="metrics">
           <Metric label="Shipments" value={data.shipments.length} />
@@ -885,6 +1192,6 @@ export default function App() {
 
   if (checking) return <main className="auth-shell"><p>Loading CargoScan...</p></main>;
   if (!session) return <Login onLogin={setSession} />;
-  if (session.user.role === "SUPER_ADMIN") return <AdminDashboard session={session} onLogout={() => setSession(null)} />;
+  if (session.user.role === "SUPER_ADMIN") return <PlatformControlCenter session={session} onLogout={() => setSession(null)} />;
   return <Dashboard session={session} setSession={setSession} />;
 }

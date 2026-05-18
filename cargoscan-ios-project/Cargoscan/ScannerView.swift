@@ -620,32 +620,9 @@ struct ScannerView: View {
         
         Task {
             do {
-                var photoUrl: String? = nil
                 var quality: ScanQualityResult? = nil
-                
-                // 1. Upload photo if available
-                if let image = vm.capturedImage,
-                   let imageData = image.jpegData(compressionQuality: 0.8) {
-                    
-                    let (uploadUrl, publicUrl) = try await NetworkService.shared.getUploadUrl(cargoItemId: itemId, mimeType: "image/jpeg")
-                    
-                    try await NetworkService.shared.uploadPhoto(url: uploadUrl, data: imageData, mimeType: "image/jpeg")
-                    
-                    photoUrl = publicUrl
-
-                    if let qualityImageData = image.jpegData(compressionQuality: 0.55) {
-                        quality = try? await NetworkService.shared.checkScanQuality(
-                            imageBase64: qualityImageData.base64EncodedString(),
-                            dimensions: dims,
-                            distanceMetres: vm.distanceMetres,
-                            pitchDegrees: vm.pitchDegrees,
-                            edgeFusion: vm.edgeFusionActive
-                        )
-                    }
-                }
-                
-                // 2. Save scan
-                let payload = ScanPayload(
+                var queuedPhotoData: Data? = nil
+                let basePayload = ScanPayload(
                     cargoItemId: itemId,
                     length: dims.length,
                     width: dims.width,
@@ -653,13 +630,78 @@ struct ScannerView: View {
                     cbm: dims.cbm,
                     confidence: Float(dims.confidence),
                     scannerDevice: "iPhone LiDAR",
-                    photoUrl: photoUrl,
-                    qualityStatus: quality?.status,
-                    qualityScore: quality?.score,
-                    qualityReason: quality?.reason,
-                    qualityFlags: quality?.flags
+                    photoUrl: nil,
+                    qualityStatus: nil,
+                    qualityScore: nil,
+                    qualityReason: nil,
+                    qualityFlags: nil
                 )
+                var payload = basePayload
                 
+                // 1. Upload photo if available. Failure here should not drop the scan.
+                if let image = vm.capturedImage,
+                   let imageData = image.jpegData(compressionQuality: 0.8) {
+                    queuedPhotoData = imageData
+                    do {
+                        let (uploadUrl, publicUrl) = try await NetworkService.shared.getUploadUrl(cargoItemId: itemId, mimeType: "image/jpeg")
+                        try await NetworkService.shared.uploadPhoto(url: uploadUrl, data: imageData, mimeType: "image/jpeg")
+                        payload = ScanPayload(
+                            cargoItemId: itemId,
+                            length: dims.length,
+                            width: dims.width,
+                            height: dims.height,
+                            cbm: dims.cbm,
+                            confidence: Float(dims.confidence),
+                            scannerDevice: "iPhone LiDAR",
+                            photoUrl: publicUrl,
+                            qualityStatus: nil,
+                            qualityScore: nil,
+                            qualityReason: nil,
+                            qualityFlags: nil
+                        )
+                        if let qualityImageData = image.jpegData(compressionQuality: 0.55) {
+                            quality = try? await NetworkService.shared.checkScanQuality(
+                                imageBase64: qualityImageData.base64EncodedString(),
+                                dimensions: dims,
+                                distanceMetres: vm.distanceMetres,
+                                pitchDegrees: vm.pitchDegrees,
+                                edgeFusion: vm.edgeFusionActive
+                            )
+                            if let quality {
+                                payload = ScanPayload(
+                                    cargoItemId: itemId,
+                                    length: dims.length,
+                                    width: dims.width,
+                                    height: dims.height,
+                                    cbm: dims.cbm,
+                                    confidence: Float(dims.confidence),
+                                    scannerDevice: "iPhone LiDAR",
+                                    photoUrl: publicUrl,
+                                    qualityStatus: quality.status,
+                                    qualityScore: quality.score,
+                                    qualityReason: quality.reason,
+                                    qualityFlags: quality.flags
+                                )
+                            }
+                        }
+                    } catch {
+                        OfflineManager.shared.queueScan(
+                            payload: payload,
+                            photoData: queuedPhotoData,
+                            distanceMetres: vm.distanceMetres,
+                            pitchDegrees: vm.pitchDegrees,
+                            edgeFusion: vm.edgeFusionActive
+                        )
+                        await MainActor.run {
+                            self.isSaving = false
+                            self.saveMessage = "Photo upload failed; scan queued."
+                            self.showSaveAlert = true
+                        }
+                        return
+                    }
+                }
+                
+                // 2. Save scan
                 do {
                     let msg = try await NetworkService.shared.saveScan(payload: payload)
                     await MainActor.run {
@@ -672,7 +714,13 @@ struct ScannerView: View {
                         self.showSaveAlert = true
                     }
                 } catch {
-                    OfflineManager.shared.queueScan(payload: payload)
+                    OfflineManager.shared.queueScan(
+                        payload: payload,
+                        photoData: queuedPhotoData,
+                        distanceMetres: vm.distanceMetres,
+                        pitchDegrees: vm.pitchDegrees,
+                        edgeFusion: vm.edgeFusionActive
+                    )
                     await MainActor.run {
                         self.isSaving = false
                         self.saveMessage = "Offline. Scan saved to queue."

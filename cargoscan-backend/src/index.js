@@ -4,13 +4,12 @@ const cors = require("cors");
 const helmet = require("helmet");
 const morgan = require("morgan");
 const rateLimit = require("express-rate-limit");
-const { PrismaClient } = require("@prisma/client");
 const { startScheduler } = require("./services/scheduler");
 const apiKeyRateLimiter = require("./middleware/rateLimit");
 const crypto = require("crypto");
 
 const app = express();
-const prisma = new PrismaClient();
+const prisma = require("./lib/prisma");
 
 // Request ID Middleware
 app.use((req, res, next) => {

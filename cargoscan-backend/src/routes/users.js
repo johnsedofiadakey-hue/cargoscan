@@ -1,13 +1,12 @@
 const express = require("express");
 const router = express.Router();
-const { PrismaClient } = require("@prisma/client");
 const bcrypt = require("bcrypt");
 const crypto = require("crypto");
 const { authenticateToken, requireRole } = require("../middleware/auth");
 const { checkPlanExpiration, checkUsersLimit } = require("../middleware/plan");
 const { sendTeamInvite } = require("../services/email");
 
-const prisma = new PrismaClient();
+const prisma = require("../lib/prisma");
 
 // List org users
 router.get("/", authenticateToken, requireRole(["ADMIN"]), async (req, res) => {

@@ -127,6 +127,7 @@ model ScanCertificate {
 model Shipment {
   id              String            @id @default(uuid())
   code            String            @unique
+  trackingCode    String            @unique @default(uuid())
   from            String
   to              String
   cbmCapacity     Float
@@ -166,12 +167,13 @@ model Container {
 
 model CargoItem {
   id              String            @id @default(uuid())
-  length          Float
-  width           Float
-  height          Float
-  cbm             Float
-  scanConfidence  Float
-  status          String            @default("SCANNED") // SCANNED, LOADED, DELIVERED
+  trackingCode    String            @unique @default(uuid())
+  length          Float?
+  width           Float?
+  height          Float?
+  cbm             Float?
+  scanConfidence  Float?
+  status          String            @default("WAITING_FOR_SCAN") // WAITING_FOR_SCAN, SCANNING, READY_TO_LOAD, NEEDS_REVIEW, RESCAN_REQUIRED, LOADED, DELIVERED
   isDamaged       Boolean           @default(false)
   shipmentId      String
   shipment        Shipment          @relation(fields: [shipmentId], references: [id])
