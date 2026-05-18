@@ -4,7 +4,7 @@ import { getAuth, GoogleAuthProvider, signInWithPopup } from "firebase/auth";
 import "./App.css";
 import TrackingPage from "./TrackingPage";
 
-const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
+const API_BASE = import.meta.env.VITE_API_URL || "https://cargoscan-api.onrender.com/api";
 const IOS_TESTFLIGHT_URL = import.meta.env.VITE_IOS_TESTFLIGHT_URL || "";
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "AIzaSyDj52I2LmZS4RifzDB_EvFwMsg-NWBasUU",
@@ -166,8 +166,8 @@ function Login({ onLogin }) {
       const payload = mode === "login"
         ? login
         : {
-            fullName: signup.name,
-            companyName: signup.company,
+            name: signup.name,
+            company: signup.company,
             email: signup.email,
             password: signup.password,
             country: signup.country,

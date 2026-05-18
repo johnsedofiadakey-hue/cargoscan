@@ -102,9 +102,11 @@ router.post("/signup", async (req, res) => {
     // Store in Redis: rt:userId:deviceId
     await redis.setex(`rt:${result.user.id}:default`, 30 * 24 * 60 * 60, hashedRefreshToken);
 
-    // Send welcome email
+    // Send welcome email after the account is created; signup must not block on email delivery.
     const { sendWelcomeEmail } = require("../services/email");
-    await sendWelcomeEmail(result.user.email, result.user.name);
+    sendWelcomeEmail(result.user.email, result.user.name).catch((emailError) => {
+      console.warn("Welcome email failed after signup:", emailError.message);
+    });
 
     return res.status(201).json({
       message: "Account created successfully",
@@ -193,7 +195,9 @@ router.post("/firebase", async (req, res) => {
     });
 
     const { sendWelcomeEmail } = require("../services/email");
-    await sendWelcomeEmail(result.user.email, result.user.name);
+    sendWelcomeEmail(result.user.email, result.user.name).catch((emailError) => {
+      console.warn("Welcome email failed after Firebase signup:", emailError.message);
+    });
 
     const session = await issueSession(result.user, result.org);
     return res.status(201).json({ message: "Account created successfully", ...session });
