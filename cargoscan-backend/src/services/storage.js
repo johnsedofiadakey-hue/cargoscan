@@ -7,18 +7,24 @@ try {
   createClient = null;
 }
 
-const provider = process.env.STORAGE_PROVIDER || "local";
-
-if (provider === "local" && process.env.NODE_ENV === "production" && process.env.ALLOW_LOCAL_STORAGE !== "true") {
-  throw new Error("Local scan photo storage is disabled in production. Configure Supabase/S3-compatible storage.");
-}
+const requestedProvider = process.env.STORAGE_PROVIDER || "local";
+let provider = requestedProvider;
 
 let supabase;
-if (provider === "supabase" && createClient) {
-  if (!process.env.SUPABASE_URL || !process.env.SUPABASE_KEY) {
-    throw new Error("SUPABASE_URL and SUPABASE_KEY are required when STORAGE_PROVIDER=supabase");
+if (requestedProvider === "supabase") {
+  if (!createClient) {
+    console.warn("[storage] @supabase/supabase-js unavailable, falling back to local upload storage");
+    provider = "local";
+  } else if (!process.env.SUPABASE_URL || !process.env.SUPABASE_KEY) {
+    console.warn("[storage] SUPABASE_URL/SUPABASE_KEY missing, falling back to local upload storage");
+    provider = "local";
+  } else {
+    supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
   }
-  supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
+}
+
+if (provider === "local" && process.env.NODE_ENV === "production" && requestedProvider === "local" && process.env.ALLOW_LOCAL_STORAGE !== "true") {
+  throw new Error("Local scan photo storage is disabled in production. Configure Supabase/S3-compatible storage.");
 }
 
 const presignUpload = async ({ key, mimeType }) => {
