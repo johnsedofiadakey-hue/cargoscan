@@ -1,8 +1,9 @@
 const EventEmitter = require("events");
+const logger = require("./logger");
 
 class EventBus extends EventEmitter {
   emit(event, ...args) {
-    console.log(`[EventBus] Emitting: ${event}`);
+    logger.info({ event }, "event emitted");
     super.emit(event, ...args);
   }
 }

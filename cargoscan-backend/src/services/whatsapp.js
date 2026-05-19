@@ -1,4 +1,5 @@
 const eventBus = require("../lib/events");
+const { queue } = require("../lib/queue");
 const { LIMITS } = require("../lib/planLimits");
 
 const prisma = require("../lib/prisma");
@@ -175,13 +176,17 @@ async function send(to, templateName, vars) {
 eventBus.on("scan.created", async (data) => {
   if (!data.consigneePhone) return;
   try {
-    await send(data.consigneePhone, "cargo_received", {
-      orgId: data.orgId,
-      customerName: data.consigneeName,
-      trackingCode: data.trackingCode || data.certificateUrl,
-      dimensions: data.dimensions,
-      cbm: data.cbm,
-      cost: data.cost,
+    await queue.add("whatsapp.notify", {
+      to: data.consigneePhone,
+      templateName: "cargo_received",
+      vars: {
+        orgId: data.orgId,
+        customerName: data.consigneeName,
+        trackingCode: data.trackingCode || data.certificateUrl,
+        dimensions: data.dimensions,
+        cbm: data.cbm,
+        cost: data.cost,
+      },
     });
   } catch (err) {
     console.error("[WhatsApp] scan.created handler error:", err.message);
@@ -192,13 +197,17 @@ eventBus.on("shipment.in_transit", async (data) => {
   if (!data.consigneePhones?.length) return;
   for (const phone of data.consigneePhones) {
     try {
-      await send(phone, "shipment_departed", {
-        orgId: data.orgId,
-        customerName: data.consigneeName,
-        shipmentCode: data.shipmentCode,
-        from: data.from,
-        to: data.to,
-        estimatedDays: data.estimatedDays,
+      await queue.add("whatsapp.notify", {
+        to: phone,
+        templateName: "shipment_departed",
+        vars: {
+          orgId: data.orgId,
+          customerName: data.consigneeName,
+          shipmentCode: data.shipmentCode,
+          from: data.from,
+          to: data.to,
+          estimatedDays: data.estimatedDays,
+        },
       });
     } catch (err) {
       console.error("[WhatsApp] shipment.in_transit handler error:", err.message);
@@ -210,12 +219,16 @@ eventBus.on("shipment.arrived", async (data) => {
   if (!data.consigneePhones?.length) return;
   for (const phone of data.consigneePhones) {
     try {
-      await send(phone, "cargo_arrived", {
-        orgId: data.orgId,
-        customerName: data.consigneeName,
-        trackingCode: data.shipmentCode,
-        port: data.to,
-        expectedClearance: data.expectedClearance,
+      await queue.add("whatsapp.notify", {
+        to: phone,
+        templateName: "cargo_arrived",
+        vars: {
+          orgId: data.orgId,
+          customerName: data.consigneeName,
+          trackingCode: data.shipmentCode,
+          port: data.to,
+          expectedClearance: data.expectedClearance,
+        },
       });
     } catch (err) {
       console.error("[WhatsApp] shipment.arrived handler error:", err.message);
@@ -227,16 +240,20 @@ eventBus.on("dispute.opened", async (data) => {
   if (!data.consigneePhone) return;
   try {
     const templateName = data.status === "REVIEW" ? "dispute_review_pending" : "dispute_opened";
-    await send(data.consigneePhone, templateName, {
-      orgId: data.orgId,
-      customerName: data.consigneeName,
-      trackingCode: data.trackingCode,
+    await queue.add("whatsapp.notify", {
+      to: data.consigneePhone,
+      templateName,
+      vars: {
+        orgId: data.orgId,
+        customerName: data.consigneeName,
+        trackingCode: data.trackingCode,
+      },
     });
   } catch (err) {
     console.error("[WhatsApp] dispute.opened handler error:", err.message);
   }
 });
 
-console.log("[WhatsApp] Service loaded — event listeners registered");
+console.log("[WhatsApp] Service loaded — queue listeners registered");
 
 module.exports = { send };

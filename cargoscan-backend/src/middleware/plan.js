@@ -11,8 +11,11 @@ const checkPlanExpiration = async (req, res, next) => {
   const plan = org.plan || "TRIAL";
   const expiresAt = org.planExpiresAt;
 
-  if (expiresAt && new Date(expiresAt) < new Date() && plan === "TRIAL") {
-    return res.status(402).json({ error: "Trial expired. Upgrade to continue.", code: "trial_expired" });
+  if (expiresAt && new Date(expiresAt) < new Date()) {
+    const message = plan === "TRIAL"
+      ? "Trial expired. Upgrade to continue."
+      : "Your subscription has expired. Renew to continue.";
+    return res.status(402).json({ error: message, code: "plan_expired", plan });
   }
 
   next();

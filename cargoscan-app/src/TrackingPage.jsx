@@ -19,6 +19,7 @@ export default function TrackingPage({ apiBase = import.meta.env.VITE_API_URL ||
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [trackingData, setTrackingData] = useState(null);
+  const [copied, setCopied] = useState(false);
   
   const code = window.location.pathname.split("/").pop();
   
@@ -77,6 +78,12 @@ export default function TrackingPage({ apiBase = import.meta.env.VITE_API_URL ||
   
   const { type, data } = trackingData;
   const isShipment = type === "shipment";
+  async function shareLink() {
+    await navigator.clipboard.writeText(window.location.href);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1600);
+  }
+  const timeline = data.timeline?.length ? data.timeline : [{ status: data.status, note: "Latest update", timestamp: data.updatedAt || data.createdAt }];
   
   return (
     <div style={{ background: C.s2, minHeight: "100vh", padding: "20px 16px" }}>
@@ -104,6 +111,14 @@ export default function TrackingPage({ apiBase = import.meta.env.VITE_API_URL ||
               {isShipment ? data.code : (data.trackingCode || data.id).substring(0, 12)}
             </div>
           </div>
+          <button onClick={shareLink} style={{ width: "100%", border: 0, background: copied ? C.success : C.blue, color: "#fff", padding: "12px 16px", borderRadius: 10, fontWeight: 700, marginBottom: 16 }}>
+            {copied ? "Copied!" : "Share tracking link"}
+          </button>
+          {isShipment && data.damagedItems > 0 && (
+            <div style={{ background: "#fff3cd", color: "#7a4b00", padding: 12, borderRadius: 10, marginBottom: 16, fontWeight: 700 }}>
+              Damage reported on {data.damagedItems} item{data.damagedItems === 1 ? "" : "s"}.
+            </div>
+          )}
           
           {/* Details */}
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px 20px", marginBottom: 20 }}>
@@ -131,19 +146,13 @@ export default function TrackingPage({ apiBase = import.meta.env.VITE_API_URL ||
             <div style={{ position: "relative", paddingLeft: 24 }}>
               <div style={{ position: "absolute", left: 7, top: 5, bottom: 5, width: 2, background: C.lightGray }} />
               
-              <div style={{ position: "relative", marginBottom: 16 }}>
-                <div style={{ position: "absolute", left: -21, top: 4, width: 10, height: 10, borderRadius: "50%", background: C.blue }} />
-                <div style={{ fontSize: 14, fontWeight: 600 }}>Shipment Created</div>
-                <div style={{ fontSize: 11, color: C.gray }}>{new Date(data.createdAt).toLocaleString()}</div>
-              </div>
-              
-              {data.status === "DELIVERED" && (
-                <div style={{ position: "relative" }}>
-                  <div style={{ position: "absolute", left: -21, top: 4, width: 10, height: 10, borderRadius: "50%", background: C.success }} />
-                  <div style={{ fontSize: 14, fontWeight: 600 }}>Delivered</div>
-                  <div style={{ fontSize: 11, color: C.gray }}>Successfully completed</div>
+              {timeline.map((event, index) => (
+                <div key={`${event.status}-${index}`} style={{ position: "relative", marginBottom: 16 }}>
+                  <div style={{ position: "absolute", left: -21, top: 4, width: 10, height: 10, borderRadius: "50%", background: index === timeline.length - 1 ? C.success : C.blue }} />
+                  <div style={{ fontSize: 14, fontWeight: 600 }}>{String(event.status).replaceAll("_", " ")}</div>
+                  <div style={{ fontSize: 11, color: C.gray }}>{event.timestamp ? new Date(event.timestamp).toLocaleString() : "Timestamp pending"} · {event.note || "CargoScan update"}</div>
                 </div>
-              )}
+              ))}
             </div>
           </div>
         </div>
@@ -170,8 +179,8 @@ export default function TrackingPage({ apiBase = import.meta.env.VITE_API_URL ||
         
         {/* Footer */}
         <div style={{ textAlign: "center", padding: "20px 0", borderTop: `1px solid ${C.bd}` }}>
-          <div style={{ fontSize: 12, color: C.gray, marginBottom: 4 }}>Verified by CargoScan</div>
-          <div style={{ fontSize: 10, color: C.gray }}>Freight Intelligence Platform</div>
+          <div style={{ fontSize: 12, color: C.gray, marginBottom: 4 }}>Verified scan data powered by LiDAR</div>
+          <div style={{ fontSize: 10, color: C.gray }}>CargoScan · Freight Intelligence Platform</div>
         </div>
         
       </div>

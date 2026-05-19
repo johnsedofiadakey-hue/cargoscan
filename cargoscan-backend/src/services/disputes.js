@@ -6,22 +6,35 @@ const prisma = require("../lib/prisma");
  */
 async function evaluate(cargoItemId, newCbm, scanId, orgId) {
   try {
-    // Read previous scans (source != "MANUAL" only)
-    const prevScans = await prisma.scanResult.findMany({
+    // Only a PASS-quality prior scan can be treated as the origin baseline.
+    const originScans = await prisma.scanResult.findMany({
       where: {
         cargoItemId: cargoItemId,
         id: { not: scanId },
         source: { not: "MANUAL" },
+        OR: [
+          { qualityStatus: "PASS" },
+          { qualityStatus: null, confidence: { gte: 0.9 } },
+        ],
       },
       orderBy: { createdAt: "desc" },
       take: 1,
     });
 
-    if (prevScans.length === 0) {
-      return; // No prior scan to compare
+    if (originScans.length === 0) {
+      await prisma.dispute.create({
+        data: {
+          cargoItemId,
+          status: "REVIEW",
+          originCbm: 0,
+          destinationCbm: Number(newCbm || 0),
+          notes: "No origin scan on record — verify manually.",
+        }
+      });
+      return;
     }
 
-    const prev = prevScans[0];
+    const prev = originScans[0];
     const prevCbm = Number(prev.cbm || 0);
     const nextCbm = Number(newCbm || 0);
     const gap = Math.abs(prevCbm - nextCbm) / Math.max(prevCbm, nextCbm, 1);

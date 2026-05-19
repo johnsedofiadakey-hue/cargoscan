@@ -1,6 +1,7 @@
 const express = require("express");
 const router = express.Router();
 const { authenticateEither } = require("../middleware/either");
+const { getPagination, sendList } = require("../lib/pagination");
 
 const prisma = require("../lib/prisma");
 
@@ -12,8 +13,17 @@ router.get("/", authenticateEither, async (req, res) => {
     if (shipmentId) {
       where.shipmentId = shipmentId;
     }
-    const consignees = await prisma.consignee.findMany({ where });
-    res.json(consignees);
+    const pagination = getPagination(req.query);
+    const [consignees, total] = await Promise.all([
+      prisma.consignee.findMany({
+        where,
+        orderBy: { createdAt: "desc" },
+        ...(pagination.requested ? { skip: pagination.skip, take: pagination.take } : {}),
+      }),
+      prisma.consignee.count({ where }),
+    ]);
+    res.setHeader("X-Total-Count", total);
+    sendList(res, consignees, total, pagination);
   } catch (err) {
     console.error("List Consignees Error:", err);
     res.status(500).json({ error: "Internal Server Error" });

@@ -17,6 +17,7 @@ const ALLOWED_EVENTS = new Set([
   "shipment.delivered",
   "dispute.opened",
   "dispute.resolved",
+  "webhook.test",
 ]);
 
 function normalizeEvents(events) {
@@ -139,6 +140,26 @@ router.get("/:id/deliveries", authenticateToken, requireRole(["ADMIN"]), async (
     res.json(deliveries);
   } catch (err) {
     console.error("List Deliveries Error:", err);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+router.post("/:id/test", authenticateToken, requireRole(["ADMIN"]), async (req, res) => {
+  try {
+    const webhook = await prisma.webhook.findUnique({ where: { id: req.params.id } });
+    if (!webhook || webhook.organizationId !== req.org.id) {
+      return res.status(404).json({ error: "Webhook not found" });
+    }
+    const eventBus = require("../lib/events");
+    eventBus.emit("webhook.test", {
+      orgId: req.org.id,
+      webhookId: webhook.id,
+      message: "CargoScan test webhook",
+      sentAt: new Date().toISOString(),
+    });
+    res.json({ message: "Test webhook queued" });
+  } catch (err) {
+    console.error("Test Webhook Error:", err);
     res.status(500).json({ error: "Internal Server Error" });
   }
 });

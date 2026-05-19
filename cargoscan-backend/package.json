@@ -6,6 +6,7 @@
     "start": "node src/index.js",
     "build": "npx prisma generate",
     "dev": "nodemon src/index.js",
+    "worker": "node src/workers/notifications.js",
     "lint": "echo \"Linting bypassing...\"",
     "test": "node --test"
   },
@@ -16,8 +17,10 @@
   "dependencies": {
     "@prisma/client": "^6.19.2",
     "@sendgrid/mail": "^8.1.6",
+    "@sentry/node": "^10.53.1",
     "@supabase/supabase-js": "^2.105.4",
     "bcrypt": "^6.0.0",
+    "bullmq": "^5.76.10",
     "cors": "^2.8.6",
     "dotenv": "^17.3.1",
     "express": "^5.2.1",
@@ -27,6 +30,8 @@
     "jsonwebtoken": "^9.0.3",
     "morgan": "^1.10.1",
     "nodemailer": "^8.0.7",
+    "pino": "^10.3.1",
+    "pino-http": "^11.0.0",
     "prisma": "^6.19.2",
     "redis": "^5.11.0",
     "zod": "^4.3.6"

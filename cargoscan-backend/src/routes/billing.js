@@ -82,30 +82,37 @@ const webhookHandler = async (req, res) => {
       const providerRef = event.data.reference || event.data.id?.toString();
 
       if (orgId && providerRef) {
-        const existing = await prisma.subscription.findFirst({
-          where: { provider: "PAYSTACK", providerRef },
-        });
-        if (existing) return res.sendStatus(200);
+        // Use upsert to guard against duplicate webhook deliveries (race condition)
+        let created = false;
+        try {
+          await prisma.subscription.create({
+            data: {
+              organizationId: orgId,
+              planCode: plan,
+              status: "ACTIVE",
+              provider: "PAYSTACK",
+              providerRef,
+            },
+          });
+          created = true;
+        } catch (err) {
+          if (err.code === "P2002") {
+            // Duplicate webhook delivery — idempotent, already processed
+            return res.sendStatus(200);
+          }
+          throw err;
+        }
 
-        // Update Organization
-        await prisma.organization.update({
-          where: { id: orgId },
-          data: {
-            plan: plan,
-            planExpiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // +30 days
-          }
-        });
-        
-        // Write Subscription row
-        await prisma.subscription.create({
-          data: {
-            organizationId: orgId,
-            planCode: plan,
-            status: "ACTIVE",
-            provider: "PAYSTACK",
-            providerRef,
-          }
-        });
+        if (created) {
+          // Update Organization only after subscription row is committed
+          await prisma.organization.update({
+            where: { id: orgId },
+            data: {
+              plan: plan,
+              planExpiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // +30 days
+            },
+          });
+        }
 
         await audit.log({
           orgId,

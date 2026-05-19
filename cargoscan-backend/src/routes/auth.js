@@ -18,10 +18,12 @@ const issueSession = async (user, organization) => {
     expiresIn: "15m",
   });
 
+  const sessionId = crypto.randomBytes(16).toString("hex");
   const randomSecret = crypto.randomBytes(40).toString("hex");
-  const refreshToken = `${user.id}.${randomSecret}`;
+  // Format: userId.sessionId.secret — sessionId scopes the Redis key per device/session
+  const refreshToken = `${user.id}.${sessionId}.${randomSecret}`;
   const hashedRefreshToken = await bcrypt.hash(randomSecret, 10);
-  await redis.setex(`rt:${user.id}:default`, 30 * 24 * 60 * 60, hashedRefreshToken);
+  await redis.setex(`rt:${user.id}:${sessionId}`, 30 * 24 * 60 * 60, hashedRefreshToken);
 
   return {
     token,
@@ -29,7 +31,16 @@ const issueSession = async (user, organization) => {
     refreshToken,
     user: { id: user.id, name: user.name, email: user.email, role: user.role },
     organization: organization
-      ? { id: organization.id, name: organization.name, slug: organization.slug, plan: organization.plan }
+      ? {
+          id: organization.id,
+          name: organization.name,
+          slug: organization.slug,
+          plan: organization.plan,
+          planExpiresAt: organization.planExpiresAt,
+          defaultCbmRate: organization.defaultCbmRate,
+          country: organization.country,
+          city: organization.city,
+        }
       : null,
   };
 };
@@ -91,30 +102,16 @@ router.post("/signup", async (req, res) => {
       return { org, user, warehouse };
     });
 
-    const token = jwt.sign({ id: result.user.id, role: "ADMIN", orgId: result.org.id }, process.env.JWT_SECRET, {
-      expiresIn: "15m",
-    });
-
-    const randomSecret = crypto.randomBytes(40).toString("hex");
-    const refreshToken = `${result.user.id}.${randomSecret}`;
-    const hashedRefreshToken = await bcrypt.hash(randomSecret, 10);
-    
-    // Store in Redis: rt:userId:deviceId
-    await redis.setex(`rt:${result.user.id}:default`, 30 * 24 * 60 * 60, hashedRefreshToken);
-
     // Send welcome email after the account is created; signup must not block on email delivery.
     const { sendWelcomeEmail } = require("../services/email");
     sendWelcomeEmail(result.user.email, result.user.name).catch((emailError) => {
       console.warn("Welcome email failed after signup:", emailError.message);
     });
 
+    const session = await issueSession(result.user, result.org);
     return res.status(201).json({
       message: "Account created successfully",
-      token,
-      accessToken: token,
-      refreshToken,
-      user: { id: result.user.id, name: result.user.name, email: result.user.email, role: result.user.role },
-      organization: { id: result.org.id, name: result.org.name, slug: result.org.slug, plan: result.org.plan },
+      ...session,
     });
   } catch (error) {
     console.error("Signup error:", error);
@@ -212,11 +209,11 @@ router.post("/login", async (req, res) => {
     const { email, password } = req.body;
     console.log("Login attempt with email:", email);
 
-    // Handle Super Admin platform login
-    const adminEmail = process.env.SUPER_ADMIN_EMAIL || "admin@cargoscan.app";
+    // Handle Super Admin platform login — requires SUPER_ADMIN_EMAIL + SUPER_ADMIN_PASSWORD_HASH env vars
+    const adminEmail = process.env.SUPER_ADMIN_EMAIL;
     const adminHash = process.env.SUPER_ADMIN_PASSWORD_HASH;
 
-    if (email === adminEmail && adminHash) {
+    if (adminEmail && adminHash && email === adminEmail) {
       const validPassword = await bcrypt.compare(password, adminHash);
       if (validPassword) {
         const token = jwt.sign({ role: "SUPER_ADMIN" }, process.env.JWT_SECRET, { expiresIn: "10h" });
@@ -247,19 +244,27 @@ router.post("/login", async (req, res) => {
       expiresIn: "15m",
     });
 
+    const sessionId = crypto.randomBytes(16).toString("hex");
     const randomSecret = crypto.randomBytes(40).toString("hex");
-    const refreshToken = `${user.id}.${randomSecret}`;
+    const refreshToken = `${user.id}.${sessionId}.${randomSecret}`;
     const hashedRefreshToken = await bcrypt.hash(randomSecret, 10);
-    
-    // Store in Redis: rt:userId:deviceId
-    await redis.setex(`rt:${user.id}:default`, 30 * 24 * 60 * 60, hashedRefreshToken);
+    await redis.setex(`rt:${user.id}:${sessionId}`, 30 * 24 * 60 * 60, hashedRefreshToken);
 
     return res.json({
       token,
       accessToken: token,
       refreshToken,
       user: { id: user.id, name: user.name, email: user.email, role: user.role },
-      organization: { id: user.organization.id, name: user.organization.name, slug: user.organization.slug, plan: user.organization.plan },
+      organization: {
+        id: user.organization.id,
+        name: user.organization.name,
+        slug: user.organization.slug,
+        plan: user.organization.plan,
+        planExpiresAt: user.organization.planExpiresAt,
+        defaultCbmRate: user.organization.defaultCbmRate,
+        country: user.organization.country,
+        city: user.organization.city,
+      },
     });
   } catch (error) {
     console.error("Login error:", error);
@@ -275,16 +280,16 @@ router.post("/refresh", async (req, res) => {
     return res.status(400).json({ error: "Missing refresh token" });
   }
 
+  // Format: userId.sessionId.secret (3 parts — sessionId scopes the key per device/session)
   const parts = refreshToken.split(".");
-  if (parts.length !== 2) {
+  if (parts.length !== 3) {
     return res.status(401).json({ error: "Invalid refresh token format" });
   }
-  
-  const userId = parts[0];
-  const secret = parts[1];
+
+  const [userId, sessionId, secret] = parts;
 
   try {
-    const key = `rt:${userId}:default`;
+    const key = `rt:${userId}:${sessionId}`;
     const storedHash = await redis.get(key);
 
     if (!storedHash) {
@@ -309,9 +314,9 @@ router.post("/refresh", async (req, res) => {
       expiresIn: "15m",
     });
 
-    // Rotate refresh token — prefix with userId. so the parser can extract it next call
+    // Rotate secret within the same session — keeps sessionId stable for this device
     const newRandomSecret = crypto.randomBytes(40).toString("hex");
-    const newRefreshToken = `${userId}.${newRandomSecret}`;
+    const newRefreshToken = `${userId}.${sessionId}.${newRandomSecret}`;
     const newHashedRefreshToken = await bcrypt.hash(newRandomSecret, 10);
     await redis.setex(key, 30 * 24 * 60 * 60, newHashedRefreshToken);
 
@@ -322,6 +327,47 @@ router.post("/refresh", async (req, res) => {
     });
   } catch (err) {
     console.error("Refresh Error:", err);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+router.post("/forgot-password", async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ error: "Email is required" });
+
+    const user = await prisma.user.findUnique({ where: { email } });
+    if (user?.active) {
+      const resetToken = crypto.randomBytes(32).toString("hex");
+      await redis.setex(`pwd:${resetToken}`, 60 * 60, user.id);
+      const resetUrl = `${process.env.FRONTEND_URL || "https://app.cargoscan.app"}/reset-password?token=${resetToken}`;
+      const { sendPasswordReset } = require("../services/email");
+      sendPasswordReset(user.email, user.name, resetUrl).catch((emailError) => {
+        console.warn("Password reset email failed:", emailError.message);
+      });
+    }
+
+    res.json({ message: "If that email exists, reset instructions are on the way." });
+  } catch (err) {
+    console.error("Forgot password error:", err);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+router.post("/reset-password", async (req, res) => {
+  try {
+    const { token, password } = req.body;
+    if (!token || !password) return res.status(400).json({ error: "Token and new password are required" });
+
+    const userId = await redis.get(`pwd:${token}`);
+    if (!userId) return res.status(400).json({ error: "Reset link expired. Request a new one." });
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+    await prisma.user.update({ where: { id: userId }, data: { password: hashedPassword } });
+    await redis.del(`pwd:${token}`);
+    res.json({ message: "Password updated. You can sign in now." });
+  } catch (err) {
+    console.error("Reset password error:", err);
     res.status(500).json({ error: "Internal Server Error" });
   }
 });
@@ -345,6 +391,9 @@ router.get("/me", authenticateToken, async (req, res) => {
         slug: req.org.slug,
         plan: req.org.plan,
         planExpiresAt: req.org.planExpiresAt,
+        defaultCbmRate: req.org.defaultCbmRate,
+        country: req.org.country,
+        city: req.org.city,
       },
     });
   } catch (err) {
@@ -353,12 +402,55 @@ router.get("/me", authenticateToken, async (req, res) => {
   }
 });
 
+router.put("/organization", authenticateToken, async (req, res) => {
+  try {
+    if (req.user.role !== "ADMIN") {
+      return res.status(403).json({ error: "Only admins can update organization settings" });
+    }
+
+    const { name, country, city, defaultCbmRate, logoUrl } = req.body;
+    const data = {
+      name,
+      country,
+      city,
+      defaultCbmRate: defaultCbmRate !== undefined ? parseFloat(defaultCbmRate) : undefined,
+      logoUrl,
+    };
+    Object.keys(data).forEach((key) => data[key] === undefined && delete data[key]);
+
+    const organization = await prisma.organization.update({
+      where: { id: req.org.id },
+      data,
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        plan: true,
+        planExpiresAt: true,
+        defaultCbmRate: true,
+        country: true,
+        city: true,
+        logoUrl: true,
+      },
+    });
+
+    res.json(organization);
+  } catch (err) {
+    console.error("Update organization error:", err);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
 // Logout
 router.post("/logout", authenticateToken, async (req, res) => {
   try {
-    const userId = req.user.id;
-    
-    await redis.del(`rt:${userId}:default`);
+    const { refreshToken } = req.body || {};
+    if (refreshToken) {
+      const [userId, sessionId] = refreshToken.split(".");
+      if (userId === req.user.id && sessionId) {
+        await redis.del(`rt:${userId}:${sessionId}`);
+      }
+    }
     res.json({ message: "Logged out successfully" });
   } catch (err) {
     console.error("Logout Error:", err);

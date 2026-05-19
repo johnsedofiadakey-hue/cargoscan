@@ -1,4 +1,5 @@
 const eventBus = require("../lib/events");
+const { queue } = require("../lib/queue");
 const crypto = require("crypto");
 
 const prisma = require("../lib/prisma");
@@ -162,18 +163,19 @@ const ALL_EVENTS = [
   "shipment.delivered",
   "dispute.opened",
   "dispute.resolved",
+  "webhook.test",
 ];
 
 for (const evt of ALL_EVENTS) {
   eventBus.on(evt, async (data) => {
     if (!data.orgId) return;
-    await dispatch(data.orgId, evt, data).catch(err =>
+    await queue.add("webhook.deliver", { orgId: data.orgId, event: evt, payload: data }).catch(err =>
       console.error(`[WebhookDispatcher] Error handling ${evt}:`, err.message)
     );
   });
 }
 
-console.log("[WebhookDispatcher] Service loaded — event listeners registered");
+console.log("[WebhookDispatcher] Service loaded — queue listeners registered");
 setInterval(() => {
   recoverFailedDeliveries().catch(err =>
     console.error("[WebhookDispatcher] Recovery loop error:", err.message)

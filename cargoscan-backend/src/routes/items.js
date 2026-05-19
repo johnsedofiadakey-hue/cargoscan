@@ -5,6 +5,7 @@ const { checkPlanExpiration, checkItemsLimit } = require("../middleware/plan");
 const eventBus = require("../lib/events");
 const audit = require("../lib/audit");
 const { cargoItemTrackingCode } = require("../lib/trackingCodes");
+const { getPagination, sendList, updatedAfterFilter } = require("../lib/pagination");
 
 const router = express.Router();
 const prisma = require("../lib/prisma");
@@ -29,15 +30,23 @@ const parseOptionalPositive = (value) => {
 router.get("/", authenticateEither, async (req, res) => {
   try {
     const shipmentId = req.query.shipmentId;
-    const items = await prisma.cargoItem.findMany({
-      where: {
-        ...(shipmentId ? { shipmentId } : {}),
-        shipment: { organizationId: req.org.id },
-      },
-      include: { scanResults: true, shipment: true, consignee: true, container: true },
-      orderBy: { createdAt: "desc" },
-    });
-    res.json(items);
+    const pagination = getPagination(req.query);
+    const where = {
+      ...(shipmentId ? { shipmentId } : {}),
+      ...updatedAfterFilter(req.query.updatedAfter),
+      shipment: { organizationId: req.org.id },
+    };
+    const [items, total] = await Promise.all([
+      prisma.cargoItem.findMany({
+        where,
+        include: { scanResults: true, shipment: true, consignee: true, container: true, assignedOperator: { select: { id: true, name: true, role: true } } },
+        orderBy: { createdAt: "desc" },
+        ...(pagination.requested ? { skip: pagination.skip, take: pagination.take } : {}),
+      }),
+      prisma.cargoItem.count({ where }),
+    ]);
+    res.setHeader("X-Total-Count", total);
+    sendList(res, items, total, pagination);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Internal server error" });
@@ -53,7 +62,7 @@ router.post(
   checkItemsLimit,
   async (req, res) => {
     try {
-      const { shipmentId, consigneeId, length, width, height, isDamaged, description } = req.body;
+      const { shipmentId, consigneeId, assignedOperatorId, length, width, height, isDamaged, damagePhotoUrl, description } = req.body;
 
       if (!shipmentId) {
         return res.status(400).json({ error: "Shipment is required" });
@@ -65,12 +74,27 @@ router.post(
       });
       if (!shipment) return res.status(404).json({ error: "Shipment not found" });
 
+      const MUTABLE_SHIPMENT_STATUSES = new Set(["OPEN", "LOADING"]);
+      if (!MUTABLE_SHIPMENT_STATUSES.has(shipment.status)) {
+        return res.status(409).json({
+          error: "Shipment is sealed and cannot accept new items.",
+          code: "shipment_locked",
+          shipmentStatus: shipment.status,
+        });
+      }
+
       // Verify consignee belongs to the same shipment/org if provided
       if (consigneeId) {
         const consignee = await prisma.consignee.findFirst({
           where: { id: consigneeId, organizationId: req.org.id },
         });
         if (!consignee) return res.status(404).json({ error: "Consignee not found" });
+      }
+      if (assignedOperatorId) {
+        const operator = await prisma.user.findFirst({
+          where: { id: assignedOperatorId, organizationId: req.org.id, active: true },
+        });
+        if (!operator) return res.status(404).json({ error: "Assigned operator not found" });
       }
 
       const parsedLength = parseOptionalPositive(length);
@@ -95,11 +119,13 @@ router.post(
           scanConfidence: null,
           status: hasAllDimensions ? "NEEDS_REVIEW" : "WAITING_FOR_SCAN",
           isDamaged: isDamaged || false,
+          damagePhotoUrl: damagePhotoUrl || null,
           description,
           shipmentId,
           consigneeId: consigneeId || null,
+          assignedOperatorId: assignedOperatorId || null,
         },
-        include: { shipment: true },
+        include: { shipment: true, assignedOperator: { select: { id: true, name: true, role: true } } },
       });
 
       await audit.log({
@@ -154,7 +180,7 @@ router.put(
   checkPlanExpiration,
   async (req, res) => {
     try {
-      const { length, width, height, status, isDamaged, consigneeId, description } = req.body;
+      const { length, width, height, status, isDamaged, damagePhotoUrl, consigneeId, assignedOperatorId, description } = req.body;
 
       const existing = await prisma.cargoItem.findFirst({
         where: { id: req.params.id, shipment: { organizationId: req.org.id } },
@@ -168,13 +194,20 @@ router.put(
         });
         if (!consignee) return res.status(404).json({ error: "Consignee not found" });
       }
+      if (assignedOperatorId) {
+        const operator = await prisma.user.findFirst({
+          where: { id: assignedOperatorId, organizationId: req.org.id, active: true },
+        });
+        if (!operator) return res.status(404).json({ error: "Assigned operator not found" });
+      }
 
       if (status !== undefined && !PACKAGE_STATUSES.has(status)) {
         return res.status(400).json({ error: "Invalid package status" });
       }
 
-      let dataToUpdate = { status, isDamaged, description };
+      let dataToUpdate = { status, isDamaged, damagePhotoUrl, description };
       if (consigneeId !== undefined) dataToUpdate.consigneeId = consigneeId;
+      if (assignedOperatorId !== undefined) dataToUpdate.assignedOperatorId = assignedOperatorId || null;
       if (length !== undefined || width !== undefined || height !== undefined) {
         const parsedLength = parseOptionalPositive(length);
         const parsedWidth = parseOptionalPositive(width);

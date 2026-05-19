@@ -4,7 +4,7 @@ const bcrypt = require("bcrypt");
 const crypto = require("crypto");
 const { authenticateToken, requireRole } = require("../middleware/auth");
 const { checkPlanExpiration, checkUsersLimit } = require("../middleware/plan");
-const { sendTeamInvite } = require("../services/email");
+const { sendTeamInvite, sendPasswordReset } = require("../services/email");
 
 const prisma = require("../lib/prisma");
 
@@ -69,7 +69,6 @@ router.post("/", authenticateToken, requireRole(["ADMIN"]), checkPlanExpiration,
       email: user.email,
       name: user.name,
       role: user.role,
-      tempPassword, // Return ONCE
     });
   } catch (err) {
     console.error("Create User Error:", err);
@@ -121,7 +120,12 @@ router.post("/:id/reset-password", authenticateToken, requireRole(["ADMIN"]), as
       data: { password: hashedPassword },
     });
 
-    res.json({ tempPassword: tempPassword });
+    const loginUrl = process.env.FRONTEND_URL || "https://app.cargoscan.app";
+    sendPasswordReset(user.email, user.name, loginUrl, tempPassword).catch(e =>
+      console.error("[Users] Failed to send password reset email:", e.message)
+    );
+
+    res.json({ message: "Password reset. New credentials sent to user's email." });
   } catch (err) {
     console.error("Reset Password Error:", err);
     res.status(500).json({ error: "Internal Server Error" });

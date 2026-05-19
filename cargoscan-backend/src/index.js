@@ -2,14 +2,20 @@ require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 const helmet = require("helmet");
-const morgan = require("morgan");
+const pinoHttp = require("pino-http");
 const rateLimit = require("express-rate-limit");
+const Sentry = require("@sentry/node");
 const { startScheduler } = require("./services/scheduler");
 const apiKeyRateLimiter = require("./middleware/rateLimit");
 const crypto = require("crypto");
+const logger = require("./lib/logger");
 
 const app = express();
 const prisma = require("./lib/prisma");
+
+if (process.env.SENTRY_DSN) {
+  Sentry.init({ dsn: process.env.SENTRY_DSN, environment: process.env.NODE_ENV || "development" });
+}
 
 // Request ID Middleware
 app.use((req, res, next) => {
@@ -20,7 +26,15 @@ app.use((req, res, next) => {
 
 // Security & Logging Middleware
 app.use(helmet());
-app.use(morgan("combined"));
+app.use(pinoHttp({
+  logger,
+  genReqId: (req) => req.id,
+  customProps: (req) => ({
+    requestId: req.id,
+    orgId: req.org?.id,
+    userId: req.user?.id,
+  }),
+}));
 
 // Rate Limiting
 const limiter = rateLimit({
@@ -72,6 +86,7 @@ app.use("/api/admin", require("./routes/admin"));
 app.use("/api/keys", require("./routes/apiKeys"));
 app.use("/api/webhooks", require("./routes/webhooks"));
 app.use("/api/consignees", require("./routes/consignees"));
+app.use("/api/audit-logs", require("./routes/audit"));
 app.use("/api/tracking", require("./routes/tracking"));
 app.use("/api/billing", billingRouter);
 app.use("/api/users", require("./routes/users"));
@@ -121,7 +136,8 @@ app.get("/api/health", async (req, res) => {
 
 // Centralized Error Handling
 app.use((err, req, res, next) => {
-  console.error("Global Error Handler:", err.stack);
+  if (process.env.SENTRY_DSN) Sentry.captureException(err);
+  req.log?.error({ err, requestId: req.id, orgId: req.org?.id, userId: req.user?.id }, "global error handler");
   if (err.message === "Not allowed by CORS") {
     return res.status(403).json({ error: "CORS policy violation" });
   }
@@ -134,18 +150,18 @@ const PORT = process.env.PORT || 3000;
 startScheduler();
 
 app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+  logger.info({ port: PORT }, "server started");
 });
 
 // Graceful shutdown
 process.on("SIGTERM", async () => {
-  console.log("SIGTERM received. Shutting down gracefully...");
+  logger.info("SIGTERM received. Shutting down gracefully...");
   await prisma.$disconnect();
   process.exit(0);
 });
 
 process.on("SIGINT", async () => {
-  console.log("SIGINT received. Shutting down gracefully...");
+  logger.info("SIGINT received. Shutting down gracefully...");
   await prisma.$disconnect();
   process.exit(0);
 });

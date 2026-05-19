@@ -1,7 +1,19 @@
 const express = require("express");
+const rateLimit = require("express-rate-limit");
 const router = express.Router();
 
 const prisma = require("../lib/prisma");
+
+// Tighter limit for public, unauthenticated tracking lookups
+const trackingLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many tracking requests — please slow down." },
+});
+
+router.use(trackingLimiter);
 
 function itemDto(item) {
   const latestScan = item.scanResults?.[0] || null;
@@ -22,6 +34,9 @@ function itemDto(item) {
 
 function shipmentDto(shipment) {
   const cargoItems = shipment.cargoItems || [];
+  const events = shipment.events?.length
+    ? shipment.events
+    : [{ status: "OPEN", note: "Shipment created", createdAt: shipment.createdAt }];
   return {
     id: shipment.trackingCode,
     code: shipment.code,
@@ -32,8 +47,14 @@ function shipmentDto(shipment) {
     cbmCapacity: shipment.cbmCapacity,
     cbm: cargoItems.reduce((sum, item) => sum + Number(item.cbm || 0), 0),
     items: cargoItems.length,
+    damagedItems: cargoItems.filter((item) => item.isDamaged).length,
     createdAt: shipment.createdAt,
     updatedAt: shipment.updatedAt,
+    timeline: events.map((event) => ({
+      status: event.status,
+      note: event.note,
+      timestamp: event.createdAt,
+    })),
     cargoItems: cargoItems.map(itemDto),
     organization: shipment.organization
       ? { name: shipment.organization.name, slug: shipment.organization.slug }
@@ -84,7 +105,8 @@ router.get("/:code", async (req, res) => {
               take: 1,
             },
           }
-        }
+        },
+        events: { orderBy: { createdAt: "asc" } },
       }
     });
 

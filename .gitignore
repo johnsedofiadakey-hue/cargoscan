@@ -4,6 +4,7 @@ node_modules/
 .env
 .env.local
 .firebase/
+.claude/
 dist/
 /cargoscan-backend/node_modules/
 /cargoscan-app/node_modules/

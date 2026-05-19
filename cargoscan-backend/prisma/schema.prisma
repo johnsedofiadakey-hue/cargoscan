@@ -16,6 +16,7 @@ model Organization {
   defaultCbmRate  Float             @default(85.0)
   country         String
   city            String
+  logoUrl         String?
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @updatedAt
   users           User[]
@@ -43,6 +44,7 @@ model User {
   scanResults     ScanResult[]
   notificationLogs NotificationLog[]
   disputes        Dispute[]         @relation("DisputeResolver")
+  assignedItems   CargoItem[]       @relation("AssignedOperator")
 }
 
 model Warehouse {
@@ -139,8 +141,18 @@ model Shipment {
   cargoItems      CargoItem[]
   consignees      Consignee[]
   containers      Container[]
+  events          ShipmentEvent[]
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @updatedAt
+}
+
+model ShipmentEvent {
+  id              String            @id @default(uuid())
+  shipmentId      String
+  shipment        Shipment          @relation(fields: [shipmentId], references: [id])
+  status          String
+  note            String?
+  createdAt       DateTime          @default(now())
 }
 
 model Container {
@@ -181,6 +193,9 @@ model CargoItem {
   container       Container?        @relation(fields: [containerId], references: [id])
   consigneeId     String?
   consignee       Consignee?        @relation(fields: [consigneeId], references: [id])
+  assignedOperatorId String?
+  assignedOperator User?            @relation("AssignedOperator", fields: [assignedOperatorId], references: [id])
+  damagePhotoUrl  String?
   description     String?
   scanResults     ScanResult[]
   disputes        Dispute[]
@@ -236,6 +251,8 @@ model Subscription {
   organization    Organization      @relation(fields: [organizationId], references: [id])
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @updatedAt
+
+  @@unique([provider, providerRef])
 }
 
 model AuditLog {

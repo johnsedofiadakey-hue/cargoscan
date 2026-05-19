@@ -4,14 +4,16 @@ const { authenticateToken, requireRole } = require("../middleware/auth");
 const { requireScope } = require("../middleware/apiKey");
 const { checkPlanExpiration, checkContainerLimit, requireFeature } = require("../middleware/plan");
 const audit = require("../lib/audit");
+const { getPagination, sendList } = require("../lib/pagination");
+const eventBus = require("../lib/events");
 
 const router = express.Router();
 const prisma = require("../lib/prisma");
 
 const capacityByType = {
-  "20FT": 33,
-  "40FT": 67,
-  "40HQ": 76,
+  "20FT": 28,
+  "40FT": 55.8,
+  "40HQ": 67.2,
 };
 
 const LOADABLE_ITEM_STATUS = "READY_TO_LOAD";
@@ -33,16 +35,23 @@ const containerDto = (container) => {
 
 router.get("/", authenticateEither, async (req, res) => {
   try {
-    const containers = await prisma.container.findMany({
-      where: { organizationId: req.org.id },
-      include: {
-        shipment: true,
-        cargoItems: { include: { consignee: true, scanResults: { orderBy: { createdAt: "desc" }, take: 1 } } },
-      },
-      orderBy: { createdAt: "desc" },
-    });
+    const pagination = getPagination(req.query);
+    const where = { organizationId: req.org.id };
+    const [containers, total] = await Promise.all([
+      prisma.container.findMany({
+        where,
+        include: {
+          shipment: true,
+          cargoItems: { include: { consignee: true, scanResults: { orderBy: { createdAt: "desc" }, take: 1 } } },
+        },
+        orderBy: { createdAt: "desc" },
+        ...(pagination.requested ? { skip: pagination.skip, take: pagination.take } : {}),
+      }),
+      prisma.container.count({ where }),
+    ]);
 
-    res.json(containers.map(containerDto));
+    res.setHeader("X-Total-Count", total);
+    sendList(res, containers.map(containerDto), total, pagination);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Internal server error" });
@@ -69,7 +78,7 @@ router.post(
         data: {
           number,
           type,
-          capacityCbm: capacityCbm ? parseFloat(capacityCbm) : capacityByType[type] || 76,
+          capacityCbm: capacityCbm ? parseFloat(capacityCbm) : capacityByType[type] || 67.2,
           destination,
           vessel,
           bookingNumber,
@@ -224,6 +233,51 @@ router.delete("/:id/items/:itemId", authenticateEither, requireScope("items:writ
     });
 
     res.json(updated);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+router.post("/:id/seal", authenticateToken, requireRole(["ADMIN", "SUPERVISOR"]), checkPlanExpiration, async (req, res) => {
+  try {
+    const container = await prisma.container.findFirst({
+      where: { id: req.params.id, organizationId: req.org.id },
+      include: {
+        shipment: { include: { consignees: { where: { whatsappOptIn: true } } } },
+        cargoItems: { include: { consignee: true } },
+      },
+    });
+    if (!container) return res.status(404).json({ error: "Container not found" });
+
+    const reviewItems = container.cargoItems.filter((item) => ["NEEDS_REVIEW", "RESCAN_REQUIRED"].includes(item.status));
+    if (reviewItems.length && !req.body?.confirmWithReviewItems) {
+      return res.status(409).json({
+        error: "Some packages still need review before sealing this container.",
+        code: "review_items_present",
+        reviewItems: reviewItems.map((item) => ({ id: item.id, description: item.description, status: item.status })),
+      });
+    }
+
+    const updated = await prisma.container.update({
+      where: { id: container.id },
+      data: { status: "SEALED" },
+      include: { shipment: true, cargoItems: { include: { consignee: true } } },
+    });
+
+    const phones = [...new Set(container.cargoItems.map((item) => item.consignee?.phone).filter(Boolean))];
+    if (container.shipment) {
+      eventBus.emit("shipment.sealed", {
+        orgId: req.org.id,
+        shipmentId: container.shipment.id,
+        shipmentCode: container.shipment.code,
+        from: container.shipment.from,
+        to: container.shipment.to,
+        consigneePhones: phones,
+      });
+    }
+
+    res.json(containerDto(updated));
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Internal server error" });

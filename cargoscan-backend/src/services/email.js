@@ -98,12 +98,20 @@ const sendTeamInvite = async (to, name, loginUrl, tempPassword) => {
 /**
  * Sends a password reset email.
  */
-const sendPasswordReset = async (to, name, resetUrl) => {
+const sendPasswordReset = async (to, name, resetUrl, tempPassword = null) => {
   try {
     const templatePath = path.join(__dirname, "../templates/password_reset.html");
     let html = fs.readFileSync(templatePath, "utf8");
-    html = html.replace("{{name}}", name);
-    html = html.replace("{{resetUrl}}", resetUrl);
+    html = html.replace(/{{name}}/g, name);
+    html = html.replace(/{{resetUrl}}/g, resetUrl || process.env.FRONTEND_URL || "https://app.cargoscan.app");
+    if (tempPassword) {
+      html = html.replace(
+        "<p>Click the button below to choose a new password.</p>",
+        `<p>An administrator reset your password. Use this temporary password to sign in, then update it immediately:</p>
+    <p><strong>${tempPassword}</strong></p>`
+      );
+      html = html.replace(/<p><a href="[^"]*" class="button">Reset Password<\/a><\/p>/, "");
+    }
     
     await send({ to, subject: "Reset your CargoScan Password", html });
     return { success: true };
