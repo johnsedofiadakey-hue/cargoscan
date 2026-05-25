@@ -16,4 +16,16 @@ const logger = pino({
   },
 });
 
+if (!global.__cargoscanConsoleBridgeInstalled) {
+  global.__cargoscanConsoleBridgeInstalled = true;
+  const formatArgs = (args) => args.map((arg) => {
+    if (arg instanceof Error) return { message: arg.message, stack: arg.stack };
+    if (typeof arg === "object") return arg;
+    return String(arg);
+  });
+  console.log = (...args) => logger.info({ console: true, args: formatArgs(args) }, args.map(String).join(" "));
+  console.warn = (...args) => logger.warn({ console: true, args: formatArgs(args) }, args.map(String).join(" "));
+  console.error = (...args) => logger.error({ console: true, args: formatArgs(args) }, args.map(String).join(" "));
+}
+
 module.exports = logger;

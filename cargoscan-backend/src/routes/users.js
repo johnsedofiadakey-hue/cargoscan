@@ -5,24 +5,32 @@ const crypto = require("crypto");
 const { authenticateToken, requireRole } = require("../middleware/auth");
 const { checkPlanExpiration, checkUsersLimit } = require("../middleware/plan");
 const { sendTeamInvite, sendPasswordReset } = require("../services/email");
+const { getPagination, sendList } = require("../lib/pagination");
 
 const prisma = require("../lib/prisma");
 
 // List org users
 router.get("/", authenticateToken, requireRole(["ADMIN"]), async (req, res) => {
   try {
-    const users = await prisma.user.findMany({
-      where: { organizationId: req.org.id },
-      select: {
-        id: true,
-        email: true,
-        name: true,
-        role: true,
-        active: true,
-        createdAt: true,
-      }
-    });
-    res.json(users);
+    const pagination = getPagination(req.query);
+    const where = { organizationId: req.org.id };
+    const [users, total] = await Promise.all([
+      prisma.user.findMany({
+        where,
+        select: {
+          id: true,
+          email: true,
+          name: true,
+          role: true,
+          active: true,
+          createdAt: true,
+        },
+        orderBy: { createdAt: "desc" },
+        ...(pagination.requested ? { skip: pagination.skip, take: pagination.take } : {}),
+      }),
+      prisma.user.count({ where }),
+    ]);
+    sendList(res, users, total, pagination);
   } catch (err) {
     console.error("List Users Error:", err);
     res.status(500).json({ error: "Internal Server Error" });

@@ -77,6 +77,53 @@ services:
       - key: TWILIO_WHATSAPP_FROM
         sync: false
 
+  - type: worker
+    name: cargoscan-notifications
+    runtime: node
+    rootDir: cargoscan-backend
+    plan: free
+    region: oregon
+    buildCommand: npm ci && npm run build
+    startCommand: npm run worker
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: cargoscan-postgres
+          property: connectionString
+      - key: DIRECT_URL
+        fromDatabase:
+          name: cargoscan-postgres
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: cargoscan-redis
+          property: connectionString
+      - key: API_PUBLIC_URL
+        sync: false
+      - key: FRONTEND_URL
+        sync: false
+      - key: SENDGRID_API_KEY
+        sync: false
+      - key: EMAIL_FROM
+        value: noreply@cargoscan.app
+      - key: WHATSAPP_PROVIDER
+        value: meta
+      - key: WHATSAPP_TOKEN
+        sync: false
+      - key: WHATSAPP_PHONE_ID
+        sync: false
+      - key: TWILIO_ACCOUNT_SID
+        sync: false
+      - key: TWILIO_AUTH_TOKEN
+        sync: false
+      - key: TWILIO_WHATSAPP_FROM
+        sync: false
+      - key: SENTRY_DSN
+        sync: false
+
   - type: keyvalue
     name: cargoscan-redis
     plan: free

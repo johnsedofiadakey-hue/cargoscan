@@ -1,1 +1,1 @@
-export { default } from "./_modulePlaceholder";
+export { WorkQueue as default } from "../AppShell.jsx";

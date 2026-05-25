@@ -1,1 +1,1 @@
-export { default } from "./_modulePlaceholder";
+export { OperationsCommand as default } from "../AppShell.jsx";

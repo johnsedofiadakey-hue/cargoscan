@@ -3,6 +3,7 @@ const router = express.Router();
 const crypto = require("crypto");
 const { authenticateToken, requireRole } = require("../middleware/auth");
 const { checkWebhookLimit } = require("../middleware/plan");
+const { getPagination, sendList } = require("../lib/pagination");
 
 const prisma = require("../lib/prisma");
 const ALLOWED_EVENTS = new Set([
@@ -49,10 +50,17 @@ function validateWebhookUrl(value) {
 // List webhooks
 router.get("/", authenticateToken, requireRole(["ADMIN"]), async (req, res) => {
   try {
-    const webhooks = await prisma.webhook.findMany({
-      where: { organizationId: req.org.id },
-    });
-    res.json(webhooks);
+    const pagination = getPagination(req.query);
+    const where = { organizationId: req.org.id };
+    const [webhooks, total] = await Promise.all([
+      prisma.webhook.findMany({
+        where,
+        orderBy: { createdAt: "desc" },
+        ...(pagination.requested ? { skip: pagination.skip, take: pagination.take } : {}),
+      }),
+      prisma.webhook.count({ where }),
+    ]);
+    sendList(res, webhooks, total, pagination);
   } catch (err) {
     console.error("List Webhooks Error:", err);
     res.status(500).json({ error: "Internal Server Error" });

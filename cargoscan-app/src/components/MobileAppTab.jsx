@@ -1,1 +1,1 @@
-export { default } from "./_modulePlaceholder";
+export { MobileAppTab as default } from "../AppShell.jsx";

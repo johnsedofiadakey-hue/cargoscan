@@ -4,6 +4,7 @@ const bcrypt = require("bcrypt");
 const crypto = require("crypto");
 const { authenticateToken, requireRole } = require("../middleware/auth");
 const { checkApiKeyLimit } = require("../middleware/plan");
+const { getPagination, sendList } = require("../lib/pagination");
 
 const prisma = require("../lib/prisma");
 const ALLOWED_SCOPES = new Set([
@@ -23,18 +24,25 @@ function normalizeScopes(scopes) {
 // List API keys
 router.get("/", authenticateToken, requireRole(["ADMIN"]), async (req, res) => {
   try {
-    const keys = await prisma.apiKey.findMany({
-      where: { organizationId: req.org.id },
-      select: {
-        id: true,
-        name: true,
-        prefix: true,
-        scopes: true,
-        lastUsedAt: true,
-        createdAt: true,
-      }
-    });
-    res.json(keys);
+    const pagination = getPagination(req.query);
+    const where = { organizationId: req.org.id };
+    const [keys, total] = await Promise.all([
+      prisma.apiKey.findMany({
+        where,
+        select: {
+          id: true,
+          name: true,
+          prefix: true,
+          scopes: true,
+          lastUsedAt: true,
+          createdAt: true,
+        },
+        orderBy: { createdAt: "desc" },
+        ...(pagination.requested ? { skip: pagination.skip, take: pagination.take } : {}),
+      }),
+      prisma.apiKey.count({ where }),
+    ]);
+    sendList(res, keys, total, pagination);
   } catch (err) {
     console.error("List API Keys Error:", err);
     res.status(500).json({ error: "Internal Server Error" });

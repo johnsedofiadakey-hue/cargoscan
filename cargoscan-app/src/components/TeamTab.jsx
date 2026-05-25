@@ -1,1 +1,1 @@
-export { default } from "./_modulePlaceholder";
+export { TeamTab as default } from "../AppShell.jsx";

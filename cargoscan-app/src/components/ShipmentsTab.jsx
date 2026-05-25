@@ -1,1 +1,1 @@
-export { default } from "./_modulePlaceholder";
+export { ShipmentsTab as default } from "../AppShell.jsx";

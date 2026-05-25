@@ -1,1 +1,1 @@
-export { default } from "./_modulePlaceholder";
+export { ContainersTab as default } from "../AppShell.jsx";

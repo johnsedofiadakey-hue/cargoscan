@@ -1,1 +1,1 @@
-export { default } from "./_modulePlaceholder";
+export { PlatformControlCenter as default } from "../AppShell.jsx";

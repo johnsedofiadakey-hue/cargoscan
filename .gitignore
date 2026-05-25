@@ -10,3 +10,5 @@ dist/
 /cargoscan-app/node_modules/
 /cargoscan-ios-project/build/
 /cargoscan-ios-project/DerivedData/
+*.xcuserstate
+xcuserdata/

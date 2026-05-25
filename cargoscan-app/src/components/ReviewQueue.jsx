@@ -1,1 +1,1 @@
-export { default } from "./_modulePlaceholder";
+export { ReviewQueue as default } from "../AppShell.jsx";

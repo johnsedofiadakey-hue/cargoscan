@@ -1,1 +1,1 @@
-export { default } from "./_modulePlaceholder";
+export { CustomersTab as default } from "../AppShell.jsx";

@@ -1,1 +1,1 @@
-export { default } from "./_modulePlaceholder";
+export { BillingTab as default } from "../AppShell.jsx";
