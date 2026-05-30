@@ -113,7 +113,14 @@ function SelectField({ label, value, onChange, options, required = false }) {
 
 function Notice({ type = "info", children }) {
   if (!children) return null;
-  return <div className={`notice ${type}`}>{children}</div>;
+  // error/success demand immediate screen-reader announcement; info/warn are polite
+  const live = type === "error" || type === "success" ? "assertive" : "polite";
+  const role = type === "error" ? "alert" : "status";
+  return (
+    <div className={`notice ${type}`} role={role} aria-live={live}>
+      {children}
+    </div>
+  );
 }
 
 function StatusPill({ status }) {
@@ -131,7 +138,12 @@ function StatusPill({ status }) {
     READY_TO_LOAD: "✓",
     LOADED: "▣",
   };
-  return <span className={`status-pill status-${value.toLowerCase()}`}><span>{icons[value] || "•"}</span>{value.replaceAll("_", " ")}</span>;
+  return (
+    <span className={`status-pill status-${value.toLowerCase()}`} aria-label={value.replaceAll("_", " ")}>
+      <span aria-hidden="true">{icons[value] || "•"}</span>
+      {value.replaceAll("_", " ")}
+    </span>
+  );
 }
 
 function EmptyState({ title, description, action, onAction }) {
@@ -1048,7 +1060,17 @@ export function ContainersTab({ data, reload, setMessage, setError, confirm, loa
               <strong>{container.number} · {container.type}</strong>
               <span><StatusPill status={container.status} /> · {Number(container.totalCbm || 0).toFixed(3)} / {Number(container.capacityCbm || 0).toFixed(1)} CBM · {container.utilization || 0}% full</span>
               {container.utilization > 100 && <Notice type="error">Overfilled — remove packages before sealing.</Notice>}
-              <div className={`progress ${container.utilization > 95 ? "danger" : container.utilization > 80 ? "warn" : ""}`} title={`${Number(container.totalCbm || 0).toFixed(1)} of ${Number(container.capacityCbm || 0).toFixed(1)} CBM used — room for ~${Math.max(0, Math.floor(((container.capacityCbm || 0) - (container.totalCbm || 0)) / 0.064))} more 40cm packages`}><span style={{ width: `${Math.min(container.utilization || 0, 100)}%` }} /></div>
+              <div
+                className={`progress ${container.utilization > 95 ? "danger" : container.utilization > 80 ? "warn" : ""}`}
+                role="progressbar"
+                aria-valuenow={Math.min(container.utilization || 0, 100)}
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-label={`Container ${container.number} — ${container.utilization || 0}% full`}
+                title={`${Number(container.totalCbm || 0).toFixed(1)} of ${Number(container.capacityCbm || 0).toFixed(1)} CBM used — room for ~${Math.max(0, Math.floor(((container.capacityCbm || 0) - (container.totalCbm || 0)) / 0.064))} more 40cm packages`}
+              >
+                <span style={{ width: `${Math.min(container.utilization || 0, 100)}%` }} />
+              </div>
               <small>{container.destination || "No destination"} · {container.itemsCount || 0} packages · {container.customerCount || 0} customers</small>
               <div className="button-row">
                 <button onClick={() => checkLiveTracking(container.id)}>Live tracking</button>
@@ -1893,7 +1915,13 @@ export function Dashboard({ session, setSession }) {
           ))}
         </nav>
         <div className="sidebar-user">
-          <div className="user-avatar">{session.user.name ? session.user.name.split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2) : "U"}</div>
+          <div
+            className="user-avatar"
+            aria-label={`${session.user.name || "User"} (${session.user.role})`}
+            title={session.user.name}
+          >
+            {session.user.name ? session.user.name.split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2) : "U"}
+          </div>
           <div className="sidebar-user-info">
             <strong>{session.user.name}</strong>
             <span>{session.user.role}</span>
@@ -1915,7 +1943,13 @@ export function Dashboard({ session, setSession }) {
           <div className="user-pill">
             <span className="live-chip"><i />Live {lastSynced ? `· ${lastSynced.toLocaleTimeString()}` : ""}</span>
             <span className="plan-chip">{session.organization?.plan || "TRIAL"}{planDays !== null ? ` · ${planDays}d` : ""}</span>
-            <div className="topbar-avatar">{session.user.name ? session.user.name.split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2) : "U"}</div>
+            <div
+              className="topbar-avatar"
+              aria-label={session.user.name || "User"}
+              title={`${session.user.name} · ${session.user.role}`}
+            >
+              {session.user.name ? session.user.name.split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2) : "U"}
+            </div>
           </div>
         </header>
         {session.organization?.plan === "TRIAL" && planDays !== null && planDays < 3 && (
@@ -1971,7 +2005,17 @@ export function Dashboard({ session, setSession }) {
         {active === "team" && isAdmin && <TeamTab data={data} reload={load} setMessage={setMessage} confirm={confirm} loadMore={loadMore} />}
         {active === "billing" && isAdmin && <BillingTab organization={session.organization} setMessage={setMessage} confirm={confirm} />}
         {active === "settings" && isAdmin && <SettingsTab session={session} setSession={setSession} data={data} reload={load} setMessage={setMessage} confirm={confirm} loadMore={loadMore} />}
-        {toast && <button className="toast" onClick={() => setActive("shipments")}>{toast}</button>}
+        {toast && (
+          <button
+            className="toast"
+            role="status"
+            aria-live="polite"
+            aria-atomic="true"
+            onClick={() => setActive("shipments")}
+          >
+            {toast}
+          </button>
+        )}
         <ConfirmDialog confirmState={confirmState} onCancel={() => closeConfirm(false)} onConfirm={() => closeConfirm(true)} />
       </section>
     </main>
