@@ -1,4 +1,41 @@
 require("dotenv").config();
+
+// ── Startup environment validation ──────────────────────────────────────────
+// Required: app will degrade or fail without these
+const REQUIRED_VARS = [
+  "JWT_SECRET",
+  "DATABASE_URL",
+  "REDIS_URL",
+  "SUPER_ADMIN_EMAIL",
+  "SUPER_ADMIN_PASSWORD_HASH",
+  "FRONTEND_URL",
+  "API_PUBLIC_URL",
+];
+// Recommended: features silently disabled when absent
+const RECOMMENDED_VARS = [
+  ["SENDGRID_API_KEY",            "email delivery (invites, password reset)"],
+  ["FIREBASE_SERVICE_ACCOUNT_JSON","Google OAuth sign-in"],
+  ["PAYSTACK_SECRET_KEY",         "billing / plan upgrades"],
+  ["SENTRY_DSN",                  "error tracking"],
+  ["WHATSAPP_TOKEN",              "WhatsApp notifications"],
+  ["SUPABASE_URL",                "scan photo storage"],
+];
+
+const missingRequired = REQUIRED_VARS.filter(k => !process.env[k]);
+if (missingRequired.length) {
+  // Log loudly but don't crash — Render injects vars asynchronously on first boot
+  console.error(
+    `[STARTUP] ⚠️  Missing REQUIRED env vars: ${missingRequired.join(", ")}` +
+    "\n         Set these in Render → cargoscan-api → Environment before serving real traffic."
+  );
+}
+const missingRecommended = RECOMMENDED_VARS.filter(([k]) => !process.env[k]);
+if (missingRecommended.length) {
+  missingRecommended.forEach(([k, feature]) =>
+    console.warn(`[STARTUP]    Missing ${k} — ${feature} will be disabled`)
+  );
+}
+
 const express = require("express");
 const cors = require("cors");
 const helmet = require("helmet");

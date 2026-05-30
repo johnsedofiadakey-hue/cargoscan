@@ -1,16 +1,84 @@
-# React + Vite
+# CargoScan — Freight Intelligence Dashboard
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+React 19 + Vite 7 frontend for the CargoScan platform. Deploys to Firebase Hosting.
 
-Currently, two official plugins are available:
+## Stack
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+- **React 19** + React Router 7
+- **Vite 7** — build tool
+- **Firebase Hosting** — static hosting + SPA rewrites
+- **Firebase Auth** — Google OAuth (via popup)
+- **Sentry** — frontend error tracking (optional)
 
-## React Compiler
+## Local Development
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+```bash
+npm install
+cp .env.example .env.local   # fill in your local values
+npm run dev                   # http://localhost:5173
+```
 
-## Expanding the ESLint configuration
+## Environment Variables
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `VITE_API_URL` | Yes | Backend API base URL (no trailing slash) |
+| `VITE_FIREBASE_API_KEY` | Yes | Firebase web app API key |
+| `VITE_FIREBASE_AUTH_DOMAIN` | Yes | Firebase auth domain |
+| `VITE_FIREBASE_PROJECT_ID` | Yes | Firebase project ID |
+| `VITE_FIREBASE_STORAGE_BUCKET` | Yes | Firebase storage bucket |
+| `VITE_FIREBASE_MESSAGING_SENDER_ID` | Yes | Firebase messaging sender |
+| `VITE_FIREBASE_APP_ID` | Yes | Firebase app ID |
+| `VITE_IOS_TESTFLIGHT_URL` | No | TestFlight URL shown as QR in Mobile App tab |
+| `VITE_SENTRY_DSN` | No | Sentry DSN for error tracking |
+
+`.env.production` is committed and sets `VITE_API_URL` to the production Render URL automatically on build.
+
+## Build & Deploy
+
+```bash
+# Production build
+npm run build
+
+# Deploy to Firebase Hosting
+firebase deploy --only hosting --project cargoscan-app-2026
+```
+
+CI should run `npm run build` then `firebase deploy`. The `dist/` directory is the hosting target.
+
+## Key Routes
+
+| Path | Component | Auth |
+|------|-----------|------|
+| `/` | Login / Signup | Public |
+| `/dashboard/operations` | Shipments + Work Queue | Authenticated |
+| `/dashboard/containers` | Container loading | Authenticated |
+| `/dashboard/customers` | Consignee management | Authenticated |
+| `/dashboard/mobile` | iOS app install | Authenticated |
+| `/dashboard/team` | User management | Admin only |
+| `/dashboard/billing` | Plan + Paystack checkout | Admin only |
+| `/dashboard/settings` | Org settings, API keys, webhooks | Admin only |
+| `/tracking/:code` | Public shipment tracking page | Public |
+| `/reset-password?token=` | Password reset | Public |
+| `/billing/callback` | Paystack redirect handler | Public |
+
+## Architecture Notes
+
+- `AppShell.jsx` — main app shell, auth state, data loading, keyboard shortcuts
+- `TrackingPage.jsx` — standalone public tracking page (self-contained styles)
+- `src/components/` — per-tab components (ShipmentsTab, ContainersTab, etc.)
+- `App.css` — full design system (dark glassmorphic, Satoshi + Inter, CSS token system)
+- Data polling every 12 seconds when tab is visible; toast notification on new scans
+
+## Design System
+
+Design tokens live in `:root` in `App.css`. Key tokens:
+
+```css
+--brand: #0ecfb0        /* teal primary */
+--indigo: #6d6aff       /* indigo accent */
+--bg: #060c18           /* page background */
+--fs-xs → --fs-hero     /* typography scale (9 steps) */
+--ease, --ease-md        /* motion tokens */
+--glass-border           /* glass surface borders */
+```
