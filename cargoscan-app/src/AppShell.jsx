@@ -1242,13 +1242,34 @@ export function TeamTab({ data, reload, setMessage, confirm, loadMore }) {
 }
 
 export function MobileAppTab({ session }) {
+  const [pairUrl, setPairUrl] = useState("");
+  const [pairing, setPairing] = useState(false);
+  const [pairError, setPairError] = useState("");
+
   useEffect(() => {
     localStorage.setItem("cs_mobile_seen", "1");
   }, []);
+
   const installUrl = IOS_TESTFLIGHT_URL;
   const qrUrl = installUrl
     ? `https://api.qrserver.com/v1/create-qr-code/?size=220x220&margin=14&data=${encodeURIComponent(installUrl)}`
     : "";
+  const pairQrUrl = pairUrl
+    ? `https://api.qrserver.com/v1/create-qr-code/?size=240x240&margin=14&data=${encodeURIComponent(pairUrl)}`
+    : "";
+
+  async function generatePairingQr() {
+    setPairing(true);
+    setPairError("");
+    try {
+      const result = await api("/auth/mobile-code", { method: "POST" });
+      setPairUrl(`cargoscan://auth?code=${encodeURIComponent(result.code)}`);
+    } catch (err) {
+      setPairError(err.message);
+    } finally {
+      setPairing(false);
+    }
+  }
 
   return (
     <div className="tab-grid install-grid">
@@ -1280,6 +1301,30 @@ export function MobileAppTab({ session }) {
         <small>{installUrl ? "Operators scan this with a LiDAR-enabled iPhone." : "No public download link exists yet. Today we install from Xcode; the next release step is TestFlight."}</small>
       </section>
 
+      <section className="panel qr-panel">
+        <h2>Pair this workspace</h2>
+        {pairQrUrl ? (
+          <>
+            <img className="qr-code" src={pairQrUrl} alt="CargoScan mobile pairing QR code" />
+            <button className="primary install-link" type="button" onClick={generatePairingQr} disabled={pairing}>
+              {pairing ? "Refreshing..." : "Refresh QR"}
+            </button>
+          </>
+        ) : (
+          <>
+            <div className="qr-placeholder" aria-label="Mobile pairing QR code not generated">
+              <span />
+              <strong>Generate a secure login QR</strong>
+            </div>
+            <button className="primary install-link" type="button" onClick={generatePairingQr} disabled={pairing}>
+              {pairing ? "Generating..." : "Generate login QR"}
+            </button>
+          </>
+        )}
+        <Notice type="error">{pairError}</Notice>
+        <small>Scan this with the iPhone Camera after the app is installed. It opens CargoScan Mobile and signs this device into {session.organization?.name || "your workspace"}.</small>
+      </section>
+
       <section className="panel download-card">
         <span className="section-kicker">Current install method</span>
         <h2>Install on your iPhone now</h2>
@@ -1302,9 +1347,9 @@ export function MobileAppTab({ session }) {
         <h2>Install flow</h2>
         <div className="install-steps">
           <span>1. Admin opens this dashboard page.</span>
-          <span>2. Operator scans the QR code.</span>
-          <span>3. TestFlight installs CargoScan Mobile.</span>
-          <span>4. Operator logs in and scans linked cargo items.</span>
+          <span>2. Install CargoScan Mobile from Xcode today, or TestFlight after release.</span>
+          <span>3. Generate the secure login QR on this page.</span>
+          <span>4. Operator scans it with the iPhone Camera and lands inside the scanner.</span>
         </div>
       </section>
 
