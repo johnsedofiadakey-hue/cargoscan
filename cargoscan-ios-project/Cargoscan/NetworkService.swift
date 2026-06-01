@@ -129,6 +129,45 @@ class NetworkService {
         
         throw NetworkError.decodingError
     }
+
+    func saveSession(token: String, refreshToken: String?) {
+        KeychainHelper.shared.saveToken(token, key: "cs_token")
+        if let refreshToken, !refreshToken.isEmpty {
+            KeychainHelper.shared.saveToken(refreshToken, key: "cs_refresh_token")
+        }
+    }
+
+    func redeemMobileLoginCode(_ code: String) async throws -> Bool {
+        guard let url = URL(string: "\(baseURL)/auth/mobile-code/redeem") else {
+            throw NetworkError.invalidURL
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: ["code": code])
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw NetworkError.serverError("Invalid response type")
+        }
+
+        if !(200...299).contains(httpResponse.statusCode) {
+            if let errorJson = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let msg = errorJson["error"] as? String {
+                throw NetworkError.serverError(msg)
+            }
+            throw NetworkError.serverError("Could not complete Google sign-in")
+        }
+
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let token = (json["token"] as? String) ?? (json["accessToken"] as? String) else {
+            throw NetworkError.decodingError
+        }
+
+        saveSession(token: token, refreshToken: json["refreshToken"] as? String)
+        return true
+    }
     
     func performRequest(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
         var req = request

@@ -73,14 +73,6 @@ app.use(pinoHttp({
   }),
 }));
 
-// Rate Limiting
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // limit each IP to 100 requests per windowMs
-  message: { error: "Too many requests, please try again later." }
-});
-app.use("/api/", limiter);
-
 // CORS
 const allowedOrigins = [
   "http://localhost:5173",
@@ -88,7 +80,9 @@ const allowedOrigins = [
   "http://127.0.0.1:5176",
   "https://cargoscan-app-2026.web.app",
   process.env.FRONTEND_URL
-].filter(Boolean);
+].flatMap((origin) => String(origin || "").split(","))
+  .map((origin) => origin.trim())
+  .filter(Boolean);
 
 const subdomainRegex = /^https:\/\/[a-z0-9-]+\.cargoscan\.app$/;
 
@@ -99,8 +93,20 @@ app.use(cors({
     } else {
       callback(new Error("Not allowed by CORS"));
     }
-  }
+  },
+  methods: ["GET", "HEAD", "PUT", "PATCH", "POST", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Authorization", "Content-Type", "X-API-Key", "X-Request-Id"],
+  optionsSuccessStatus: 204,
 }));
+
+// Rate Limiting
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // limit each IP to 100 requests per windowMs
+  skip: (req) => req.method === "OPTIONS",
+  message: { error: "Too many requests, please try again later." }
+});
+app.use("/api/", limiter);
 
 const { router: billingRouter, webhookHandler } = require("./routes/billing");
 

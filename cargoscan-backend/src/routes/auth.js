@@ -204,6 +204,39 @@ router.post("/firebase", async (req, res) => {
   }
 });
 
+router.post("/mobile-code", authenticateToken, async (req, res) => {
+  try {
+    if (!req.user?.id || !req.org) {
+      return res.status(403).json({ error: "Mobile login is only available for workspace users" });
+    }
+
+    const session = await issueSession(req.user, req.org);
+    const code = crypto.randomBytes(24).toString("hex");
+    await redis.setex(`mobile:${code}`, 90, JSON.stringify(session));
+    return res.json({ code, expiresIn: 90 });
+  } catch (error) {
+    console.error("Mobile code error:", error);
+    return res.status(500).json({ error: "Could not create mobile login code" });
+  }
+});
+
+router.post("/mobile-code/redeem", async (req, res) => {
+  try {
+    const { code } = req.body || {};
+    if (!code) return res.status(400).json({ error: "Missing mobile login code" });
+
+    const key = `mobile:${code}`;
+    const payload = await redis.get(key);
+    if (!payload) return res.status(401).json({ error: "Mobile login expired. Try Google sign-in again." });
+
+    await redis.del(key);
+    return res.json(JSON.parse(payload));
+  } catch (error) {
+    console.error("Mobile code redeem error:", error);
+    return res.status(500).json({ error: "Could not complete mobile login" });
+  }
+});
+
 router.post("/login", async (req, res) => {
   try {
     const { email, password } = req.body;

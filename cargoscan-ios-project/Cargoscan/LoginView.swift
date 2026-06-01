@@ -1,10 +1,13 @@
 import SwiftUI
+import AuthenticationServices
 
 struct LoginView: View {
     @State private var email = ""
     @State private var password = ""
     @State private var isLoading = false
+    @State private var isGoogleLoading = false
     @State private var errorMessage = ""
+    @State private var authSession: ASWebAuthenticationSession?
     @Binding var isLoggedIn: Bool
 
     var body: some View {
@@ -54,7 +57,38 @@ struct LoginView: View {
                     .disabled(isLoading || email.isEmpty || password.isEmpty)
                     .opacity(isLoading || email.isEmpty || password.isEmpty ? 0.55 : 1)
 
-                    Text("Use the same workspace credentials assigned in the CargoScan dashboard.")
+                    HStack(spacing: 12) {
+                        Rectangle()
+                            .fill(Color.black.opacity(0.08))
+                            .frame(height: 1)
+                        Text("or")
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundColor(Color(red: 0.39, green: 0.45, blue: 0.52))
+                        Rectangle()
+                            .fill(Color.black.opacity(0.08))
+                            .frame(height: 1)
+                    }
+
+                    Button(action: startGoogleSignIn) {
+                        HStack(spacing: 10) {
+                            if isGoogleLoading {
+                                ProgressView()
+                                    .tint(Color(red: 0.07, green: 0.10, blue: 0.15))
+                            } else {
+                                Image(systemName: "globe")
+                                    .font(.system(size: 15, weight: .bold))
+                            }
+                            Text(isGoogleLoading ? "Connecting Google" : "Continue with Google")
+                        }
+                        .font(.system(size: 15, weight: .bold))
+                        .foregroundColor(Color(red: 0.07, green: 0.10, blue: 0.15))
+                        .frame(maxWidth: .infinity, minHeight: 52)
+                        .background(.white, in: RoundedRectangle(cornerRadius: 10))
+                        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.black.opacity(0.10), lineWidth: 1))
+                    }
+                    .disabled(isLoading || isGoogleLoading)
+
+                    Text("Use Google if that is how you signed in on the CargoScan dashboard.")
                         .font(.system(size: 12, weight: .medium))
                         .foregroundColor(Color(red: 0.39, green: 0.45, blue: 0.52))
                         .multilineTextAlignment(.center)
@@ -204,6 +238,66 @@ struct LoginView: View {
                 }
             }
         }
+    }
+
+    private func startGoogleSignIn() {
+        guard let authURL = URL(string: "https://cargoscan-app-2026.web.app/mobile-auth?redirect_uri=cargoscan://auth") else {
+            errorMessage = "Could not start Google sign-in."
+            return
+        }
+
+        isGoogleLoading = true
+        errorMessage = ""
+
+        let session = ASWebAuthenticationSession(url: authURL, callbackURLScheme: "cargoscan") { callbackURL, error in
+            Task { @MainActor in
+                isGoogleLoading = false
+
+                if let error {
+                    if (error as NSError).code == ASWebAuthenticationSessionError.canceledLogin.rawValue {
+                        errorMessage = "Google sign-in was cancelled."
+                    } else {
+                        errorMessage = error.localizedDescription
+                    }
+                    return
+                }
+
+                guard let callbackURL,
+                      let components = URLComponents(url: callbackURL, resolvingAgainstBaseURL: false),
+                      let code = components.queryItems?.first(where: { $0.name == "code" })?.value,
+                      !code.isEmpty else {
+                    errorMessage = "Google sign-in did not return a valid login code."
+                    return
+                }
+
+                do {
+                    let success = try await NetworkService.shared.redeemMobileLoginCode(code)
+                    if success {
+                        UINotificationFeedbackGenerator().notificationOccurred(.success)
+                        isLoggedIn = true
+                    }
+                } catch {
+                    UINotificationFeedbackGenerator().notificationOccurred(.error)
+                    errorMessage = error.localizedDescription
+                }
+            }
+        }
+
+        session.presentationContextProvider = WebAuthPresentationContext.shared
+        session.prefersEphemeralWebBrowserSession = false
+        authSession = session
+        session.start()
+    }
+}
+
+final class WebAuthPresentationContext: NSObject, ASWebAuthenticationPresentationContextProviding {
+    static let shared = WebAuthPresentationContext()
+
+    func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
+        UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .flatMap { $0.windows }
+            .first { $0.isKeyWindow } ?? ASPresentationAnchor()
     }
 }
 

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import * as Sentry from "@sentry/react";
 import { initializeApp, getApps } from "firebase/app";
-import { getAuth, GoogleAuthProvider, signInWithPopup } from "firebase/auth";
+import { getAuth, GoogleAuthProvider, getRedirectResult, signInWithPopup, signInWithRedirect } from "firebase/auth";
 import "./App.css";
 import TrackingPage from "./TrackingPage";
 
@@ -508,6 +508,96 @@ function BillingCallback() {
         <button className="primary auth-primary" type="button" onClick={() => navigate("/dashboard/billing", { replace: true })}>
           Back to billing
         </button>
+      </section>
+    </main>
+  );
+}
+
+function MobileAuthBridge() {
+  const location = useLocation();
+  const [status, setStatus] = useState("Ready to connect your iPhone scanner.");
+  const [error, setError] = useState("");
+  const params = new URLSearchParams(location.search);
+  const redirectUri = sessionStorage.getItem("cs_mobile_redirect_uri") || params.get("redirect_uri") || "cargoscan://auth";
+
+  const finishMobileAuth = useCallback(async (authData) => {
+    const codeResult = await api("/auth/mobile-code", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${authData.token || authData.accessToken}` },
+    });
+    const callback = new URL(redirectUri);
+    callback.searchParams.set("code", codeResult.code);
+    window.location.href = callback.toString();
+  }, [redirectUri]);
+
+  const completeGoogleResult = useCallback(async (result) => {
+    const idToken = await result.user.getIdToken();
+    setStatus("Connecting your CargoScan workspace...");
+    const data = await api("/auth/firebase", {
+      method: "POST",
+      body: JSON.stringify({ idToken, mode: "login" }),
+    });
+      await finishMobileAuth(data);
+  }, [finishMobileAuth]);
+
+  async function continueWithGoogle() {
+    setStatus("Opening Google sign-in...");
+    setError("");
+    try {
+      sessionStorage.setItem("cs_mobile_redirect_uri", redirectUri);
+      const provider = new GoogleAuthProvider();
+      provider.setCustomParameters({ prompt: "select_account" });
+      await signInWithRedirect(firebaseAuth, provider);
+    } catch (err) {
+      if (err.message.includes("No CargoScan account")) {
+        setError("This Google account is not linked to a CargoScan workspace yet. Create the workspace on the dashboard first, then come back to the scanner app.");
+      } else {
+        setError(err.message);
+      }
+      setStatus("Sign-in was not completed.");
+    }
+  }
+
+  useEffect(() => {
+    const storedRedirectUri = sessionStorage.getItem("cs_mobile_redirect_uri");
+    if (storedRedirectUri && storedRedirectUri !== redirectUri) {
+      const current = new URL(window.location.href);
+      current.searchParams.set("redirect_uri", storedRedirectUri);
+      window.history.replaceState(null, "", current.toString());
+    }
+
+    const token = localStorage.getItem("cs_token");
+    if (token) {
+      finishMobileAuth({ token }).catch((err) => {
+        setError(err.message);
+        setStatus("Could not connect your mobile session.");
+      });
+      return;
+    }
+
+    getRedirectResult(firebaseAuth)
+      .then((result) => {
+        if (result) completeGoogleResult(result);
+      })
+      .catch((err) => {
+        setError(err.message);
+        setStatus("Sign-in was not completed.");
+      });
+  }, [completeGoogleResult, finishMobileAuth, redirectUri]);
+
+  return (
+    <main className="auth-shell mobile-auth-shell">
+      <section className="auth-card">
+        <div className="auth-card-header">
+          <span>iPhone scanner</span>
+          <h2>Sign in with Google</h2>
+        </div>
+        <p>{status}</p>
+        <Notice type="error">{error}</Notice>
+        <button className="google-button" type="button" onClick={continueWithGoogle}>
+          Continue with Google
+        </button>
+        <small>After Google confirms your account, CargoScan will return you to the scanner app automatically.</small>
       </section>
     </main>
   );
@@ -2048,6 +2138,9 @@ export default function App() {
   }
   if (location.pathname.startsWith("/reset-password")) {
     return <ResetPasswordPage />;
+  }
+  if (location.pathname.startsWith("/mobile-auth")) {
+    return <MobileAuthBridge />;
   }
   if (location.pathname.startsWith("/billing/callback")) {
     return <BillingCallback />;
